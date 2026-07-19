@@ -15,10 +15,10 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      // Bypasses all three problematic missing Gnosis wallet packages completely
-      "@safe-globalThis/safe-ethers-adapters": "Object",
-      "@safe-globalThis/safe-core-sdk": "Object",
-      "@safe-globalThis/safe-ethers-lib": "Object",
+      // Directs Vite to resolve these modules immediately to an empty inline export string
+      "@safe-globalThis/safe-ethers-adapters": "data:text/javascript,export default {}",
+      "@safe-globalThis/safe-core-sdk": "data:text/javascript,export default {}",
+      "@safe-globalThis/safe-ethers-lib": "data:text/javascript,export default {}",
     },
   },
 });
