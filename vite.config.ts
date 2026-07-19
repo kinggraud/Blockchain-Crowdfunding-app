@@ -13,4 +13,9 @@ export default defineConfig({
   define: {
     global: "globalThis",
   },
+  build: {
+    rollupOptions: {
+      external: ["@safe-globalThis/safe-ethers-adapters"],
+    },
+  },
 });
