@@ -1,18 +1,25 @@
-import React from 'react'
+import React, { useState } from 'react';
 import { Route, Routes } from 'react-router-dom';
 
+import LandingPage from './components/LandingPage';
 import { Sidebar, Navbar, SignupModal } from './components';
 import Footer from "./components/Footer";
 import { Logout } from './pages';
-
 import { CampaignDetails, CreateCampaign, Home, Profile, HelpCenter, AdminProfile } from './pages';
 
 const App = () => {
-  return (
-    // 🚀 Added dynamic bg here to ensure the full screen matches the theme standard
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#1c1c24] transition-colors duration-300">
+  // 🚀 Added state to control whether to show the Landing Page or the main Dashboard
+  const [hasStarted, setHasStarted] = useState(false);
 
-      {/* 🔄 CHANGED: Removed the hardcoded dark background and added responsive classes */}
+  // If the user hasn't clicked "Get Started" yet, show the full-screen landing page layout
+  if (!hasStarted) {
+    return <LandingPage onGetStarted={() => setHasStarted(true)} />;
+  }
+
+  // Once started, reveal the core App layout with navigation tools and router switches
+  return (
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#1c1c24] transition-colors duration-300">
+      
       <div className="relative sm:px-8 p-4 bg-slate-50 dark:bg-[#13131a] flex flex-row flex-1 transition-colors duration-300">
 
         <div className="sm:flex hidden mr-10 relative">
