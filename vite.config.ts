@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import path from "path";
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -13,12 +14,11 @@ export default defineConfig({
   define: {
     global: "globalThis",
   },
-  build: {
-    rollupOptions: {
-      external: [
-        "@safe-globalThis/safe-ethers-adapters",
-        "@safe-globalThis/safe-core-sdk"
-      ],
+  resolve: {
+    alias: {
+      // Tells Vite to safely bypass the missing Gnosis wallet packages completely
+      "@safe-globalThis/safe-ethers-adapters": "Object",
+      "@safe-globalThis/safe-core-sdk": "Object",
     },
   },
 });
