@@ -50,16 +50,34 @@ const Navbar = () => {
     }
   }, [address]);
 
-  const handleButtonClick = () => {
+  // 🔍 AUTOMATED METAMASK TRAPPING LOGIC
+  const handleButtonClick = async () => {
     if (!address) {
-      connectWallet();
+      // 📱 Check if the user is tapping from a mobile phone or tablet
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      
+      if (isMobile) {
+        // Strip out 'http://' or 'https://' to provide a clean deep-link string
+        const cleanUrl = window.location.href.replace(/^https?:\/\//, '');
+        
+        // Force-opens the MetaMask app and loads your specific Vercel URL instantly
+        window.location.href = `https://metamask.app.link/dapp/${cleanUrl}`;
+        return;
+      }
+
+      // 💻 Desktop execution behavior (triggers browser extension seamlessly)
+      try {
+        const metamask = createWallet("io.metamask");
+        await connectWallet(metamask);
+      } catch (error) {
+        console.error("MetaMask connection or onboarding failed:", error);
+      }
     } else if (!userStatus?.exists) {
       setIsModalOpen(true);
     } else {
       navigate('create-campaign');
     }
-  }
-
+  };
   return (
     <div className="flex md:flex-row flex-col-reverse justify-between mb-[35px] gap-6 relative z-50 font-epilogue">
       
@@ -111,9 +129,9 @@ const Navbar = () => {
 
         <CustomButton 
           btnType="button"
-          title={!address ? 'Connect Wallet' : (!userStatus?.exists ? 'Register Profile' : 'Create Campaign')}
+          title={!address ? 'Connect MetaMask' : (!userStatus?.exists ? 'Register Profile' : 'Create Campaign')}
           styles={`px-6 h-[52px] font-bold text-[13px] rounded-xl tracking-wide text-white transition-all duration-300 transform hover:scale-[1.02] ${
-            address ? 'bg-[#1dc071] shadow-lg shadow-[#1dc071]/10' : 'bg-[#8c6dfd] shadow-lg shadow-[#8c6dfd]/10'
+            address ? 'bg-[#1dc071] shadow-lg shadow-[#1dc071]/10' : 'bg-[#e2761b] shadow-lg shadow-[#e2761b]/10'
           }`}
           handleClick={handleButtonClick}
         />
@@ -212,8 +230,8 @@ const Navbar = () => {
           <div className="flex mx-4 mt-2">
             <CustomButton 
               btnType="button"
-              title={!address ? 'Connect Wallet' : (!userStatus?.exists ? 'Register Profile' : 'Create Campaign')}
-              styles={`w-full py-3.5 text-[13px] rounded-xl text-white font-bold ${address ? 'bg-[#1dc071]' : 'bg-[#8c6dfd]'}`}
+              title={!address ? 'Connect MetaMask' : (!userStatus?.exists ? 'Register Profile' : 'Create Campaign')}
+              styles={`w-full py-3.5 text-[13px] rounded-xl text-white font-bold ${address ? 'bg-[#1dc071]' : 'bg-[#e2761b]'}`}
               handleClick={handleButtonClick}
             />
           </div>
