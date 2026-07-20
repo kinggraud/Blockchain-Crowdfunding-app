@@ -7,6 +7,7 @@ const StateContext = createContext();
 export const StateContextProvider = ({ children }) => {
   const { contract } = useContract('0x785EAf8521aFE33171Fa1bFB7B71A28B3FafB08f');
   const { mutateAsync: createCampaignFn } = useContractWrite(contract, 'createCampaign');
+  const [ethPrice, setEthPrice] = useState({ usd: 3000, ngn: 4500000 }); i
 
   const address = useAddress();
   const connect = useConnect();
@@ -42,6 +43,28 @@ export const StateContextProvider = ({ children }) => {
     }
   };
 
+  // 🔍 1. Fetch live market conversion rates as soon as the application mounts
+  useEffect(() => {
+    const fetchLiveRates = async () => {
+      try {
+        const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd,ngn');
+        const data = await response.json();
+        
+        if (data?.ethereum) {
+          setEthPrice({
+            usd: data.ethereum.usd,
+            ngn: data.ethereum.ngn
+          });
+        }
+      } catch (error) {
+        console.error("Failed to sync live exchange matrices:", error);
+      }
+    };
+
+    fetchLiveRates();
+  }, []); // Empty dependency array means this runs exactly once on load
+
+  // 👤 2. Your original hook to verify profiles when the wallet state connects
   useEffect(() => {
     if (address && contract) checkUserStatus();
   }, [address, contract]);
@@ -92,25 +115,57 @@ export const StateContextProvider = ({ children }) => {
   };
 
   // --- 5. FETCH ALL CAMPAIGNS ---
-  const getCampaigns = async () => {
-    if (!contract) return [];
+ const getCampaigns = async () => {
     try {
+      // 1. Fetch raw campaigns directly from your smart contract array
       const campaigns = await contract.call('getCampaigns');
 
-      const parsedCampaigns = campaigns.map((c, i) => ({
-        owner: c.owner,
-        title: c.title,
-        description: c.description,
-        target: ethers.utils.formatEther(c.target.toString()),
-        deadline: c.deadline.toNumber(),
-        amountCollected: ethers.utils.formatEther(c.amountCollected.toString()),
-        image: c.image,
-        pId: i
-      }));
+      // 2. Loop through every single campaign to parse the data for the UI
+      const parsedCampaigns = campaigns.map((c, i) => {
+        // Convert raw BigNumber blockchain layout (Wei) into a standard decimal Ether string layout
+        const ethTarget = ethers.utils.formatEther(c.target.toString());
+        const ethAmountCollected = ethers.utils.formatEther(c.amountCollected.toString());
+        
+        // Read the currency preference parameter saved to the contract struct (defaulting to NGN)
+        const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'NGN';
+
+        // Set baseline values to dynamic live market values state variables
+        const currentUsdRate = ethPrice?.usd || 3000;
+        const currentNgnRate = ethPrice?.ngn || 4500000;
+
+        let finalTarget = ethTarget;
+        let finalAmountCollected = ethAmountCollected;
+
+        // Multiply the standard ether string value by your dynamic live exchange rates
+        if (selectedCurrency === 'USD' || selectedCurrency === '1') {
+          finalTarget = Math.round(Number(ethTarget) * currentUsdRate);
+          finalAmountCollected = Math.round(Number(ethAmountCollected) * currentUsdRate);
+        } else if (selectedCurrency === 'NGN' || selectedCurrency === '0') {
+          finalTarget = Math.round(Number(ethTarget) * currentNgnRate);
+          finalAmountCollected = Math.round(Number(ethAmountCollected) * currentNgnRate);
+        }
+
+        return {
+          owner: c.owner,
+          title: c.title,
+          description: c.description,
+          // 🔍 THESE ARE SENT TO FUNDCARD
+          target: finalTarget,
+          amountCollected: finalAmountCollected,
+          currency: selectedCurrency, // Tells FundCard to display ₦ or $
+          deadline: c.deadline.toNumber(),
+          image: c.image,
+          pId: i,
+          
+          // Kept safe for underlying transactional logic
+          rawEthTarget: ethTarget,
+          rawEthCollected: ethAmountCollected
+        };
+      });
 
       return parsedCampaigns;
     } catch (error) {
-      console.error("Failed to fetch campaigns:", error);
+      console.error("Failed to fetch or parse campaigns:", error);
       return [];
     }
   };
