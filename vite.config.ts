@@ -11,7 +11,7 @@ export default defineConfig({
     }),
   ],
   define: {
-    global: "globalThis",
+    "global": "window.globalThis || window",
   },
   build: {
     rollupOptions: {
