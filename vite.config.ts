@@ -11,12 +11,19 @@ export default defineConfig({
     }),
   ],
   define: {
+    // Keeps window environments stable without breaking string patterns
     "global": "window.globalThis || window",
   },
   build: {
     rollupOptions: {
-      // Tells Rollup to skip bundling anything inside the safe-global package chain entirely
       external: [/^@safe-globalThis\//],
+      // 🔍 FIX: Silences non-critical token warnings for asset files inside node_modules
+      onwarn(warning, warn) {
+        if (warning.code === 'PARSE_ERROR' && warning.loc?.file?.includes('node_modules')) {
+          return;
+        }
+        warn(warning);
+      }
     },
   },
 });
