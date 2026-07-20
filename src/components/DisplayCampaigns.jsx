@@ -1,22 +1,33 @@
-import React from 'react'
+import React from 'react';
 import { useNavigate } from 'react-router-dom'; 
+import { useStateContext } from '../context'; // Imported the context hook
 import { FundCard } from './index';
 import { loader } from '../assets';
 
-const DisplayCampaigns = ( { title, isLoading, campaigns } ) => {
-    const navigate = useNavigate();
+const DisplayCampaigns = ({ title, isLoading, campaigns }) => {
+  const navigate = useNavigate();
+  
+  // Pull the global search term from your state context
+  const { searchTerm } = useStateContext();
 
-    const handleNavigate = (campaign) => {
-        // We use the title for the URL, but the entire 'campaign' object 
-        // (including pId) is sent in the state.
-        navigate(`/campaign-details/${campaign.title}`, { state: campaign });
-    }
+  const handleNavigate = (campaign) => {
+    // We use the title for the URL, but the entire 'campaign' object 
+    // (including pId) is sent in the state.
+    navigate(`/campaign-details/${campaign.title}`, { state: campaign });
+  }
+
+  // Filter campaigns dynamically based on title or description
+  // Uses optional chaining (?.) and a fallback empty array [] to prevent loading crashes
+  const filteredCampaigns = (campaigns || []).filter(c => 
+    c.title?.toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+    c.description?.toLowerCase().includes((searchTerm || '').toLowerCase())
+  );
 
   return (
     <div>
-        {/* UPDATED: Added text-slate-900 for Light Mode visibility */}
+        {/* Updated layout counting the filtered results dynamically */}
         <h1 className="font-epilogue font-semibold text-[18px] text-slate-900 dark:text-white text-left">
-          {title} ({campaigns?.length || 0})
+          {title} ({filteredCampaigns.length})
         </h1>
 
         <div className="flex flex-wrap mt-[20px] gap-[26px]">
@@ -24,13 +35,14 @@ const DisplayCampaigns = ( { title, isLoading, campaigns } ) => {
                 <img src={loader} alt="loader" className="w-[100px] h-[100px] object-contain"/>
             )}
 
-            {!isLoading && campaigns.length === 0 && (
+            {!isLoading && filteredCampaigns.length === 0 && (
                 <p className="font-epilogue font-semibold text-[14px] leading-[30px] text-[#818183]">
-                  You have not created any campaigns yet
+                  No campaigns found matching your search.
                 </p>
             )}
 
-            {!isLoading && campaigns.length > 0 && campaigns.map((campaign) => (
+            {/* Changed from original campaigns map to use the dynamic filtered list instead */}
+            {!isLoading && filteredCampaigns.length > 0 && filteredCampaigns.map((campaign) => (
               <FundCard 
                 // CRITICAL: Use pId from our context mapping as the key
                 key={campaign.pId} 
@@ -44,4 +56,4 @@ const DisplayCampaigns = ( { title, isLoading, campaigns } ) => {
   )
 }
 
-export default DisplayCampaigns
+export default DisplayCampaigns;

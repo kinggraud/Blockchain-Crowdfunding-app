@@ -2,11 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 
+import { ConnectButton } from "thirdweb/react";
+import { createWallet, inAppWallet } from "thirdweb/wallets";
 import { useStateContext } from '../context';
 import { CustomButton } from './';
 import { logo, menu, search, thirdweb } from '../assets';
 import { navlinks } from '../constants';
 import SignupModal from './SignupModal';
+
+const wallets = [
+  inAppWallet({
+    auth: {
+      strategies: ["google", "email"], // Allows seamless mobile login without an app!
+    },
+  }),
+  createWallet("io.metamask"),
+  createWallet("com.coinbase.wallet"),
+  createWallet("org.uniswap"), // Automatically falls back to WalletConnect on mobile
+];
 
 const Navbar = () => {
   const navigate = useNavigate();
@@ -17,7 +30,8 @@ const Navbar = () => {
   const [hasProfile, setHasProfile] = useState(false);
   const [profilePic, setProfilePic] = useState('');
 
-  const { address, connectWallet, userStatus } = useStateContext(); 
+  // Added context parameters: `searchTerm` and `setSearchTerm`
+  const { address, connectWallet, userStatus, searchTerm, setSearchTerm } = useStateContext(); 
 
   useEffect(() => {
     if (address) {
@@ -49,13 +63,26 @@ const Navbar = () => {
   return (
     <div className="flex md:flex-row flex-col-reverse justify-between mb-[35px] gap-6 relative z-50 font-epilogue">
       
-      {/* 🔍 CRISP SEARCH BAR WRAPPER */}
+      {/* 🔍 INTEGRATED GLOBAL SEARCH BAR WRAPPER */}
       <div className="lg:flex-1 flex flex-row max-w-[458px] py-2 pl-4 pr-2 h-[52px] bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-xl hover:border-[#8c6dfd]/50 transition-all duration-300 focus-within:ring-2 ring-[#8c6dfd]/20 items-center shadow-sm">
         <input 
           type="text" 
           placeholder="Search for Campaigns..." 
+          value={searchTerm || ''}
+          onChange={(e) => setSearchTerm(e.target.value)}
           className="flex w-full font-normal text-[14px] placeholder:text-slate-400 dark:placeholder:text-[#4b5264] text-slate-800 dark:text-white bg-transparent outline-none"
         />
+        
+        {/* Clear Button Option for User Friendliness */}
+        {searchTerm && (
+          <button 
+            onClick={() => setSearchTerm('')} 
+            className="text-xs text-slate-400 dark:text-slate-500 mr-2 hover:text-red-500 transition-colors"
+          >
+            ✕
+          </button>
+        )}
+
         <div className="w-[40px] h-[40px] rounded-lg bg-[#1dc071] hover:bg-[#17a360] flex justify-center items-center cursor-pointer transition-colors duration-300 shadow-md shadow-[#1dc071]/10">
           <img 
             src={search} 

@@ -12,6 +12,8 @@ export const StateContextProvider = ({ children }) => {
   const connect = useConnect();
   const disconnect = useDisconnect(); // 🚀 Initialize the thirdweb disconnect engine
   
+  // 🔍 MOVED INSIDE COMPONENT: Global State for Tracking Campaign Search Query 
+  const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [userStatus, setUserStatus] = useState({ exists: false, role: 0, domain: "", isVerified: false });
 
@@ -192,8 +194,8 @@ export const StateContextProvider = ({ children }) => {
         contract,
         isLoading,
         userStatus,
-        setUserStatus, // 🚀 Share setter to clear registration states inside frontend layouts immediately
-        disconnect,    // 🚀 Export thirdweb's disconnection hook handler to the app
+        setUserStatus,
+        disconnect,    
         connectWallet,
         createCampaign,
         getCampaigns,
@@ -204,6 +206,8 @@ export const StateContextProvider = ({ children }) => {
         getDonations,
         claimRefund,
         withdrawFunds,
+        searchTerm,     // 🔍 Added to expose state property globally
+        setSearchTerm,  // 🔍 Added to expose state method globally
       }}
     >
       {children}
