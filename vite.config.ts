@@ -7,23 +7,19 @@ export default defineConfig({
   plugins: [
     react(),
     nodePolyfills({
+      // 🔍 This will inject a safe global object variable at runtime 
+      // WITHOUT breaking Thirdweb's internal function parameter text strings.
+      globals: {
+        global: true,
+      },
       protocolImports: true, 
     }),
   ],
-  define: {
-    // Keeps window environments stable without breaking string patterns
-    "global": "window.globalThis || window",
-  },
+  // 🔍 CRITICAL FIX: Delete the define block completely so it stops rewriting internal function names!
+  define: {},
   build: {
     rollupOptions: {
       external: [/^@safe-globalThis\//],
-      // 🔍 FIX: Silences non-critical token warnings for asset files inside node_modules
-      onwarn(warning, warn) {
-        if (warning.code === 'PARSE_ERROR' && warning.loc?.file?.includes('node_modules')) {
-          return;
-        }
-        warn(warning);
-      }
     },
   },
 });
