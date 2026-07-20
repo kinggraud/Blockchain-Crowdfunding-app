@@ -115,60 +115,49 @@ export const StateContextProvider = ({ children }) => {
   };
 
   // --- 5. FETCH ALL CAMPAIGNS ---
- const getCampaigns = async () => {
-    try {
-      // 1. Fetch raw campaigns directly from your smart contract array
-      const campaigns = await contract.call('getCampaigns');
+const getCampaigns = async () => {
+  try {
+    // 1. Fetch raw campaigns directly from your smart contract array
+    const campaigns = await contract.call('getCampaigns');
 
-      // 2. Loop through every single campaign to parse the data for the UI
-      const parsedCampaigns = campaigns.map((c, i) => {
-        // Convert raw BigNumber blockchain layout (Wei) into a standard decimal Ether string layout
-        const ethTarget = ethers.utils.formatEther(c.target.toString());
-        const ethAmountCollected = ethers.utils.formatEther(c.amountCollected.toString());
+    // 2. Loop through every single campaign to parse the data for the UI
+    const parsedCampaigns = campaigns.map((c, i) => {
+      // Convert raw BigNumber blockchain layout (10^18 Wei scale) into a standard decimal string layout
+      const ethTarget = ethers.utils.formatEther(c.target.toString());
+      const ethAmountCollected = ethers.utils.formatEther(c.amountCollected.toString());
+      
+      // Read the currency preference parameter saved to the contract struct (defaulting to NGN)
+      const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'NGN';
+
+      // 🔍 SAFE PROTECTION: If the contract is storing the flat fiat goal scaled to 18 decimals,
+      // formatting the ether means ethTarget IS your intended flat amount (e.g., "50000").
+      // We round it cleanly here so it never explodes with live rates again.
+      const finalTarget = Math.round(Number(ethTarget));
+      const finalAmountCollected = Math.round(Number(ethAmountCollected));
+
+      return {
+        owner: c.owner,
+        title: c.title,
+        description: c.description,
+        target: finalTarget,                  // Sent straight to FundCard (e.g., 50000)
+        amountCollected: finalAmountCollected, // Sent straight to FundCard (e.g., 12500)
+        currency: selectedCurrency,            // Tells FundCard to display ₦ or $
+        deadline: c.deadline.toNumber(),
+        image: c.image,
+        pId: i,
         
-        // Read the currency preference parameter saved to the contract struct (defaulting to NGN)
-        const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'NGN';
+        // Kept safe for underlying transactional execution logic
+        rawEthTarget: ethTarget,
+        rawEthCollected: ethAmountCollected
+      };
+    });
 
-        // Set baseline values to dynamic live market values state variables
-        const currentUsdRate = ethPrice?.usd || 3000;
-        const currentNgnRate = ethPrice?.ngn || 4500000;
-
-        let finalTarget = ethTarget;
-        let finalAmountCollected = ethAmountCollected;
-
-        // Multiply the standard ether string value by your dynamic live exchange rates
-        if (selectedCurrency === 'USD' || selectedCurrency === '1') {
-          finalTarget = Math.round(Number(ethTarget) * currentUsdRate);
-          finalAmountCollected = Math.round(Number(ethAmountCollected) * currentUsdRate);
-        } else if (selectedCurrency === 'NGN' || selectedCurrency === '0') {
-          finalTarget = Math.round(Number(ethTarget) * currentNgnRate);
-          finalAmountCollected = Math.round(Number(ethAmountCollected) * currentNgnRate);
-        }
-
-        return {
-          owner: c.owner,
-          title: c.title,
-          description: c.description,
-          // 🔍 THESE ARE SENT TO FUNDCARD
-          target: finalTarget,
-          amountCollected: finalAmountCollected,
-          currency: selectedCurrency, // Tells FundCard to display ₦ or $
-          deadline: c.deadline.toNumber(),
-          image: c.image,
-          pId: i,
-          
-          // Kept safe for underlying transactional logic
-          rawEthTarget: ethTarget,
-          rawEthCollected: ethAmountCollected
-        };
-      });
-
-      return parsedCampaigns;
-    } catch (error) {
-      console.error("Failed to fetch or parse campaigns:", error);
-      return [];
-    }
-  };
+    return parsedCampaigns;
+  } catch (error) {
+    console.error("Failed to fetch or parse campaigns:", error);
+    return [];
+  }
+};
 
   // --- 6. FETCH USER SPECIFIC CAMPAIGNS ---
   const getUserCampaigns = async () => {
