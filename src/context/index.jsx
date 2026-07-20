@@ -7,7 +7,7 @@ const StateContext = createContext();
 export const StateContextProvider = ({ children }) => {
   const { contract } = useContract('0x785EAf8521aFE33171Fa1bFB7B71A28B3FafB08f');
   const { mutateAsync: createCampaignFn } = useContractWrite(contract, 'createCampaign');
-  const [ethPrice, setEthPrice] = useState({ usd: 3000, ngn: 4500000 }); i
+  const [ethPrice, setEthPrice] = useState({ usd: 3000, ngn: 4500000 });
 
   const address = useAddress();
   const connect = useConnect();
