@@ -4,11 +4,10 @@ import { BrowserRouter as Router } from 'react-router-dom';
 import { ThirdwebProvider, MetaMaskWallet } from '@thirdweb-dev/react';
 import { StateContextProvider } from './context';
 import { Sepolia } from '@thirdweb-dev/chains';
+import ScrollToTop from './utils/ScrollToTop';
 
 import App from './App';
 import './index.css';
-
-
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
@@ -20,10 +19,12 @@ root.render(
          wallets={[new MetaMaskWallet()]}
         >
         <Router>
+            {/* 🚀 Placed here so it intercepts route updates cleanly */}
+            <ScrollToTop /> 
+            
             <StateContextProvider>
-            <App />
-
+                <App />
             </StateContextProvider>
         </Router>
     </ThirdwebProvider>
-)
+);

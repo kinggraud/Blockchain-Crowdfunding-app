@@ -1,186 +1,226 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion"; // Added AnimatePresence for transitions
-import { useStateContext } from '../context';
+import { useStateContext } from "../context";
 
-const SignupModal = ({ isOpen, onClose }) => {
-  const [step, setStep] = useState("selection");
-  const [profession, setProfession] = useState("");
-  const [formData, setFormData] = useState({});
-  const [recipientData, setRecipientData] = useState({ name: "", email: "" });
-  const { registerUser, checkUserStatus } = useStateContext();
-  const [isRegistering, setIsRegistering] = useState(false);
-
-  const resetAndClose = () => {
-    setStep("selection");
-    setProfession("");
-    setFormData({});
-    setRecipientData({ name: "", email: "" });
-    onClose();
-  };
-
-  const handleBack = () => {
-    if (step === "admin-form") setStep("admin-domain");
-    else if (step === "admin-domain" || step === "recipient-form") setStep("selection");
-  };
-
-  const handleRegistrationSubmit = async (role) => {
-    setIsRegistering(true);
-    try {
-      const registrationData = {
-        role: role,
-        domain: role === "admin" ? profession : "recipient-domain"
-      };
-      await registerUser(registrationData);
-      await checkUserStatus();
-      resetAndClose();
-    } catch (error) {
-      console.error("Registration failed:", error);
-    } finally {
-      setIsRegistering(false);
-    }
-  };
-
+const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
+  const { setUserStatus, registerUser } = useStateContext() || {};
+  
+  // Tab/Role state: defaults to 'initialRole' if provided, otherwise 'recipient'
+  const [activeRole, setActiveRole] = useState(initialRole || "recipient");
+  
+  // Sync activeRole whenever initialRole changes (e.g., when opening specifically for admin)
   useEffect(() => {
-    if (!isOpen) resetAndClose();
-  }, [isOpen]);
+    if (initialRole) {
+      setActiveRole(initialRole);
+    }
+  }, [initialRole, isOpen]);
+
+  // Admin form inputs
+  const [orgName, setOrgName] = useState("");
+  const [adminDomain, setAdminDomain] = useState("");
+  
+  // Recipient form inputs
+  const [recipientDomain, setRecipientDomain] = useState("");
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const domainQuestions = {
-    education: { title: "Academic Verification", fields: ["University Name", "Department", "Staff ID"], icon: "🎓" },
-    medical: { title: "Medical Credentials", fields: ["Hospital", "License Number", "Specialization"], icon: "🏥" },
+  const handleAdminRegister = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      const currentAddress = userAddress || window.ethereum?.selectedAddress || "0x_anonymous";
+
+      const newAdminData = {
+        address: currentAddress,
+        role: 1, // 1 = Admin
+        domain: adminDomain || "General Academic",
+        organization: orgName || "Academic Institution",
+        isVerified: true,
+        exists: true,
+      };
+
+      if (registerUser) {
+        try {
+          await registerUser({ role: 'admin', domain: adminDomain, organization: orgName });
+        } catch (contractErr) {
+          console.warn("Contract registration failed/bypassed, saving locally:", contractErr);
+        }
+      }
+
+      localStorage.setItem(`user_status_${currentAddress}`, JSON.stringify(newAdminData));
+
+      if (setUserStatus) {
+        setUserStatus(newAdminData);
+      }
+
+      onClose();
+    } catch (error) {
+      console.error("Error during admin registration:", error);
+      alert("Registration failed: " + error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRecipientRegister = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      const currentAddress = userAddress || window.ethereum?.selectedAddress || "0x_anonymous";
+
+      const newRecipientData = {
+        address: currentAddress,
+        role: 0, // 0 = Recipient
+        domain: recipientDomain || "Student",
+        isVerified: true,
+        exists: true,
+      };
+
+      if (registerUser) {
+        try {
+          await registerUser({ role: 'recipient', domain: recipientDomain });
+        } catch (contractErr) {
+          console.warn("Contract registration failed/bypassed, saving locally:", contractErr);
+        }
+      }
+
+      localStorage.setItem(`user_status_${currentAddress}`, JSON.stringify(newRecipientData));
+
+      if (setUserStatus) {
+        setUserStatus(newRecipientData);
+      }
+
+      onClose();
+    } catch (error) {
+      console.error("Error during recipient registration:", error);
+      alert("Registration failed: " + error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      {/* 🌑 Dark Blur Overlay */}
-      <motion.div 
-        initial={{ opacity: 0 }} 
-        animate={{ opacity: 1 }} 
-        className="absolute inset-0 bg-[#0a0a0c]/80 backdrop-blur-md" 
-        onClick={!isRegistering ? resetAndClose : undefined}
-      />
-
-      <motion.div 
-        initial={{ scale: 0.9, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        className="relative bg-[#1c1c24] border border-[#3a3a43] p-8 rounded-[28px] w-full max-w-[420px] shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden"
-      >
-        {/* ✨ Decorative Top Glow */}
-        <div className={`absolute top-0 left-0 w-full h-[4px] ${step === 'recipient-form' ? 'bg-[#1dc071]' : 'bg-[#8c6dfd]'}`} />
-
-        <AnimatePresence mode="wait">
-          {/* STEP 1: SELECTION */}
-          {step === "selection" && (
-            <motion.div 
-              key="selection"
-              initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }}
-              className="text-center"
-            >
-              <h2 className="text-white text-3xl font-bold mb-2 text-left">Get Started</h2>
-              <p className="text-[#808191] text-left mb-8">Choose your identity on the protocol.</p>
-              
-              <div className="flex flex-col gap-4">
-                <button 
-                  onClick={() => setStep("admin-domain")}
-                  className="group flex items-center justify-between bg-[#2c2f32]/50 hover:bg-[#8c6dfd] border border-[#3a3a43] p-5 rounded-2xl transition-all duration-300"
-                >
-                  <div className="text-left">
-                    <span className="block text-white font-bold text-lg">Admin</span>
-                    <span className="text-xs text-[#808191] group-hover:text-white/80 transition-colors">Vets academic projects</span>
-                  </div>
-                  <span className="text-2xl">🛡️</span>
-                </button>
-
-                <button 
-                  onClick={() => setStep("recipient-form")}
-                  className="group flex items-center justify-between bg-[#2c2f32]/50 hover:bg-[#1dc071] border border-[#3a3a43] p-5 rounded-2xl transition-all duration-300"
-                >
-                  <div className="text-left">
-                    <span className="block text-white font-bold text-lg">Recipient</span>
-                    <span className="text-xs text-[#808191] group-hover:text-white/80 transition-colors">Creates funding campaigns</span>
-                  </div>
-                  <span className="text-2xl">🤝</span>
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* STEP 2: DOMAIN PICKER */}
-          {step === "admin-domain" && (
-            <motion.div 
-              key="admin-domain"
-              initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }}
-            >
-              <button onClick={handleBack} className="text-[#808191] hover:text-white mb-6 text-sm flex items-center gap-2">← Back</button>
-              <h2 className="text-white text-2xl font-bold mb-6">Verification Domain</h2>
-              <div className="grid grid-cols-1 gap-3">
-                {Object.keys(domainQuestions).map((key) => (
-                  <button
-                    key={key}
-                    onClick={() => { setProfession(key); setStep("admin-form"); }}
-                    className="flex items-center gap-4 bg-[#13131a] border border-[#3a3a43] hover:border-[#8c6dfd] text-white p-4 rounded-xl capitalize transition-all"
-                  >
-                    <span className="text-xl">{domainQuestions[key].icon}</span>
-                    <span className="font-semibold">{key}</span>
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-
-          {/* STEP 3 & 4: FORMS */}
-          {(step === "admin-form" || step === "recipient-form") && (
-            <motion.div 
-              key="form"
-              initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
-            >
-              <button onClick={handleBack} className="text-[#808191] hover:text-white mb-6 text-sm flex items-center gap-2">← Back</button>
-              <h2 className="text-white text-2xl font-bold mb-2">
-                {step === "admin-form" ? domainQuestions[profession].title : "Personal Details"}
-              </h2>
-              <p className="text-[#808191] text-sm mb-6">This information is used for on-chain verification.</p>
-              
-              <div className="flex flex-col gap-4">
-                {(step === "admin-form" ? domainQuestions[profession].fields : ["Full Name", "Email Address"]).map((field) => (
-                  <div key={field} className="relative">
-                    <input 
-                      placeholder={field}
-                      className="w-full bg-[#13131a] text-white p-4 rounded-xl border border-[#3a3a43] outline-none focus:border-[#8c6dfd] transition-all placeholder:text-[#4b5264]"
-                      onChange={(e) => step === "admin-form" 
-                        ? setFormData({...formData, [field]: e.target.value})
-                        : setRecipientData({...recipientData, [field.includes("Name") ? "name" : "email"]: e.target.value})
-                      }
-                    />
-                  </div>
-                ))}
-                
-                <button 
-                  disabled={isRegistering}
-                  onClick={() => handleRegistrationSubmit(step === "admin-form" ? "admin" : "recipient")}
-                  className={`w-full py-4 rounded-xl font-bold mt-4 transition-all flex justify-center items-center gap-3 ${
-                    step === "admin-form" ? "bg-[#8c6dfd] shadow-[0_10px_20px_rgba(140,109,253,0.2)]" : "bg-[#1dc071] shadow-[0_10px_20px_rgba(29,192,113,0.2)]"
-                  } text-white disabled:opacity-50`}
-                >
-                  {isRegistering ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Processing...
-                    </>
-                  ) : "Register Account"}
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Cancel link */}
-        {!isRegistering && (
-          <button onClick={resetAndClose} className="mt-8 w-full text-[#4b5264] hover:text-white text-xs tracking-widest uppercase transition">
-            Dismiss
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 font-epilogue">
+      <div className="w-full max-w-md bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-[28px] p-8 shadow-2xl transition-all">
+        
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
+            {initialRole === "admin" ? "Register Admin Account" : "Register Account"}
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-white text-lg font-bold cursor-pointer"
+          >
+            ✕
           </button>
+        </div>
+
+        {/* Role Toggle Selector - ONLY show if no specific initialRole was enforced */}
+        {!initialRole && (
+          <div className="flex bg-slate-100 dark:bg-[#2c2f36] p-1 rounded-xl mb-6">
+            <button
+              type="button"
+              onClick={() => setActiveRole("recipient")}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                activeRole === "recipient"
+                  ? "bg-[#8c6dfd] text-white shadow-md"
+                  : "text-slate-500 dark:text-slate-400 hover:text-white"
+              }`}
+            >
+              Recipient
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveRole("admin")}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                activeRole === "admin"
+                  ? "bg-[#8c6dfd] text-white shadow-md"
+                  : "text-slate-500 dark:text-slate-400 hover:text-white"
+              }`}
+            >
+              Admin
+            </button>
+          </div>
         )}
-      </motion.div>
+
+        {/* --- ADMIN REGISTRATION FORM --- */}
+        {activeRole === "admin" ? (
+          <form onSubmit={handleAdminRegister} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 dark:text-[#808191] uppercase mb-2">
+                Organization / Institution Name
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Computer Science Department"
+                value={orgName}
+                onChange={(e) => setOrgName(e.target.value)}
+                className="w-full px-4 py-3 text-xs rounded-xl bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 dark:text-[#808191] uppercase mb-2">
+                Domain / Field
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Software Engineering"
+                value={adminDomain}
+                onChange={(e) => setAdminDomain(e.target.value)}
+                className="w-full px-4 py-3 text-xs rounded-xl bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd]"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full mt-4 py-3.5 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center cursor-pointer disabled:opacity-50"
+            >
+              {isSubmitting ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+              ) : (
+                "Register Admin Profile"
+              )}
+            </button>
+          </form>
+        ) : (
+          /* --- RECIPIENT REGISTRATION FORM --- */
+          <form onSubmit={handleRecipientRegister} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 dark:text-[#808191] uppercase mb-2">
+                Department / Program
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Final Year Computer Engineering"
+                value={recipientDomain}
+                onChange={(e) => setRecipientDomain(e.target.value)}
+                className="w-full px-4 py-3 text-xs rounded-xl bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd]"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full mt-4 py-3.5 bg-[#1dc071] hover:bg-[#17a360] text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center cursor-pointer disabled:opacity-50"
+            >
+              {isSubmitting ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+              ) : (
+                "Register Account"
+              )}
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   );
 };

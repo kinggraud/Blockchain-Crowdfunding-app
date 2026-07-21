@@ -1,5 +1,5 @@
 import React, { useContext, createContext, useState, useEffect } from 'react';
-import { useAddress, useContract, useContractWrite, useConnect, useDisconnect, metamaskWallet } from '@thirdweb-dev/react'; // 🚀 Added useDisconnect
+import { useAddress, useContract, useContractWrite, useConnect, useDisconnect, metamaskWallet } from '@thirdweb-dev/react';
 import { ethers } from 'ethers';
 
 const StateContext = createContext();
@@ -11,12 +11,21 @@ export const StateContextProvider = ({ children }) => {
 
   const address = useAddress();
   const connect = useConnect();
-  const disconnect = useDisconnect(); // 🚀 Initialize the thirdweb disconnect engine
-  
-  // 🔍 MOVED INSIDE COMPONENT: Global State for Tracking Campaign Search Query 
+  const disconnect = useDisconnect();
+
+  // 🔍 Global UI & Modal Control States
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [userStatus, setUserStatus] = useState({ exists: false, role: 0, domain: "", isVerified: false });
+  const [isSignupModalOpen, setIsSignupModalOpen] = useState(false);
+
+  // 👤 Initialize userStatus immediately from LocalStorage if available
+  const [userStatus, setUserStatus] = useState(() => {
+    const currentAddress = address || window.ethereum?.selectedAddress;
+    if (!currentAddress) return { exists: false, role: 0, domain: "", isVerified: false };
+    
+    const saved = localStorage.getItem(`user_status_${currentAddress}`);
+    return saved ? JSON.parse(saved) : { exists: false, role: 0, domain: "", isVerified: false };
+  });
 
   // --- 1. CONNECT WALLET ---
   const connectWallet = async () => {
@@ -27,23 +36,48 @@ export const StateContextProvider = ({ children }) => {
     }
   };
 
-  // --- 2. CHECK USER STATUS ---
+  // --- 2. CHECK USER STATUS (LocalStorage First, Contract Second) ---
   const checkUserStatus = async () => {
-    if (!address || !contract) return;
-    try {
-      const data = await contract.call('users', [address]);
-      setUserStatus({
-        role: data.role,
-        domain: data.domain,
-        isVerified: data.isVerified,
-        exists: data.exists
-      });
-    } catch (error) {
-      console.error("Failed to fetch user status:", error);
+    const currentAddress = address || window.ethereum?.selectedAddress;
+    if (!currentAddress) return;
+
+    // Check Local Storage first
+    const savedLocal = localStorage.getItem(`user_status_${currentAddress}`);
+    if (savedLocal) {
+      setUserStatus(JSON.parse(savedLocal));
+      return;
+    }
+
+    // Fallback to Smart Contract
+    if (contract) {
+      try {
+        const data = await contract.call('users', [currentAddress]);
+        if (data && data.exists) {
+          const status = {
+            role: data.role,
+            domain: data.domain,
+            isVerified: data.isVerified,
+            exists: data.exists
+          };
+          setUserStatus(status);
+          localStorage.setItem(`user_status_${currentAddress}`, JSON.stringify(status));
+        }
+      } catch (error) {
+        console.error("Failed to fetch user status from contract:", error);
+      }
     }
   };
 
-  // 🔍 1. Fetch live market conversion rates as soon as the application mounts
+  // Sync profile state whenever address changes
+  useEffect(() => {
+    if (address) {
+      checkUserStatus();
+    } else {
+      setUserStatus({ exists: false, role: 0, domain: "", isVerified: false });
+    }
+  }, [address, contract]);
+
+  // Fetch live ETH conversion rates on mount
   useEffect(() => {
     const fetchLiveRates = async () => {
       try {
@@ -62,32 +96,58 @@ export const StateContextProvider = ({ children }) => {
     };
 
     fetchLiveRates();
-  }, []); // Empty dependency array means this runs exactly once on load
-
-  // 👤 2. Your original hook to verify profiles when the wallet state connects
-  useEffect(() => {
-    if (address && contract) checkUserStatus();
-  }, [address, contract]);
+  }, []);
 
   // --- 3. REGISTER USER ---
   const registerUser = async (form) => {
-    try {
-      setIsLoading(true);
-      const roleNumber = form.role === 'admin' ? 1 : 2;
-      const domain = form.domain || "general";
+  try {
+    setIsLoading(true);
+    const roleNumber = form.role === 'admin' ? 1 : 0;
+    const domain = form.domain || "general";
 
-      const tx = await contract.call('registerUser', [roleNumber, domain]);
-      
-      console.log("Registration successful", tx);
-      await checkUserStatus();
-      return tx;
-    } catch (error) {
-      console.error("Contract call failure", error);
-      throw error;
-    } finally {
-      setIsLoading(false);
+    if (contract && address) {
+      // 1. Read existing on-chain user mapping/status first
+      let isAlreadyRegistered = false;
+
+      try {
+        const existingUser = await contract.call('users', [address]);
+        // Handle boolean flag or non-zero address/exists parameter from contract struct
+        if (existingUser && (existingUser.exists || existingUser.isRegistered)) {
+          isAlreadyRegistered = true;
+        }
+      } catch (readErr) {
+        console.warn("Could not read on-chain user status, proceeding with write check:", readErr);
+      }
+
+      // 2. Only issue transaction if the address is NOT registered on-chain
+      if (!isAlreadyRegistered) {
+        const tx = await contract.call('registerUser', [roleNumber, domain]);
+        console.log("On-chain registration successful", tx);
+      } else {
+        console.log("User already exists on-chain. Bypassing contract call and syncing local state...");
+      }
     }
-  };
+
+    const newUserData = {
+      address,
+      role: roleNumber,
+      domain,
+      organization: form.organization || "Academic Institution",
+      isVerified: true,
+      exists: true,
+    };
+
+    localStorage.setItem(`user_status_${address}`, JSON.stringify(newUserData));
+    setUserStatus(newUserData);
+
+    return newUserData;
+  } catch (error) {
+    console.error("Registration failure", error);
+    throw error;
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   // --- 4. CREATE CAMPAIGN ---
   const createCampaign = async (form) => {
@@ -115,49 +175,39 @@ export const StateContextProvider = ({ children }) => {
   };
 
   // --- 5. FETCH ALL CAMPAIGNS ---
-const getCampaigns = async () => {
-  try {
-    // 1. Fetch raw campaigns directly from your smart contract array
-    const campaigns = await contract.call('getCampaigns');
+  const getCampaigns = async () => {
+    try {
+      const campaigns = await contract.call('getCampaigns');
 
-    // 2. Loop through every single campaign to parse the data for the UI
-    const parsedCampaigns = campaigns.map((c, i) => {
-      // Convert raw BigNumber blockchain layout (10^18 Wei scale) into a standard decimal string layout
-      const ethTarget = ethers.utils.formatEther(c.target.toString());
-      const ethAmountCollected = ethers.utils.formatEther(c.amountCollected.toString());
-      
-      // Read the currency preference parameter saved to the contract struct (defaulting to NGN)
-      const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'NGN';
+      const parsedCampaigns = campaigns.map((c, i) => {
+        const ethTarget = ethers.utils.formatEther(c.target.toString());
+        const ethAmountCollected = ethers.utils.formatEther(c.amountCollected.toString());
+        const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'NGN';
 
-      // 🔍 SAFE PROTECTION: If the contract is storing the flat fiat goal scaled to 18 decimals,
-      // formatting the ether means ethTarget IS your intended flat amount (e.g., "50000").
-      // We round it cleanly here so it never explodes with live rates again.
-      const finalTarget = Math.round(Number(ethTarget));
-      const finalAmountCollected = Math.round(Number(ethAmountCollected));
+        const finalTarget = Math.round(Number(ethTarget));
+        const finalAmountCollected = Math.round(Number(ethAmountCollected));
 
-      return {
-        owner: c.owner,
-        title: c.title,
-        description: c.description,
-        target: finalTarget,                  // Sent straight to FundCard (e.g., 50000)
-        amountCollected: finalAmountCollected, // Sent straight to FundCard (e.g., 12500)
-        currency: selectedCurrency,            // Tells FundCard to display ₦ or $
-        deadline: c.deadline.toNumber(),
-        image: c.image,
-        pId: i,
-        
-        // Kept safe for underlying transactional execution logic
-        rawEthTarget: ethTarget,
-        rawEthCollected: ethAmountCollected
-      };
-    });
+        return {
+          owner: c.owner,
+          title: c.title,
+          description: c.description,
+          target: finalTarget,
+          amountCollected: finalAmountCollected,
+          currency: selectedCurrency,
+          deadline: c.deadline.toNumber(),
+          image: c.image,
+          pId: i,
+          rawEthTarget: ethTarget,
+          rawEthCollected: ethAmountCollected
+        };
+      });
 
-    return parsedCampaigns;
-  } catch (error) {
-    console.error("Failed to fetch or parse campaigns:", error);
-    return [];
-  }
-};
+      return parsedCampaigns;
+    } catch (error) {
+      console.error("Failed to fetch or parse campaigns:", error);
+      return [];
+    }
+  };
 
   // --- 6. FETCH USER SPECIFIC CAMPAIGNS ---
   const getUserCampaigns = async () => {
@@ -179,7 +229,7 @@ const getCampaigns = async () => {
     } finally {
       setIsLoading(false);
     }
-  }
+  };
 
   // --- 8. GET DONATIONS HISTORY ---
   const getDonations = async (pId) => {
@@ -193,7 +243,7 @@ const getCampaigns = async () => {
         parsedDonations.push({
           donator: donations[0][i],
           donation: ethers.utils.formatEther(donations[1][i].toString())
-        })
+        });
       }
 
       return parsedDonations;
@@ -201,7 +251,7 @@ const getCampaigns = async () => {
       console.error("Failed to fetch donations:", error);
       return [];
     }
-  }
+  };
 
   // --- 9. CLAIM REFUND ---
   const claimRefund = async (pId) => {
@@ -216,8 +266,9 @@ const getCampaigns = async () => {
     } finally {
       setIsLoading(false);
     }
-  }
+  };
 
+  // --- 10. WITHDRAW FUNDS ---
   const withdrawFunds = async (pId) => {
     try {
       setIsLoading(true);
@@ -229,7 +280,7 @@ const getCampaigns = async () => {
     } finally {
       setIsLoading(false);
     }
-  }
+  };
 
   return (
     <StateContext.Provider
@@ -239,6 +290,8 @@ const getCampaigns = async () => {
         isLoading,
         userStatus,
         setUserStatus,
+        isSignupModalOpen,
+        setIsSignupModalOpen,
         disconnect,    
         connectWallet,
         createCampaign,
@@ -250,8 +303,9 @@ const getCampaigns = async () => {
         getDonations,
         claimRefund,
         withdrawFunds,
-        searchTerm,     // 🔍 Added to expose state property globally
-        setSearchTerm,  // 🔍 Added to expose state method globally
+        searchTerm,
+        setSearchTerm,
+        ethPrice
       }}
     >
       {children}

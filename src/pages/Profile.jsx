@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { DisplayCampaigns } from '../components';
 import { useStateContext } from '../context';
 import { thirdweb } from '../assets';
+import SignupModal from '../components/SignupModal';
 
 const Profile = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -20,27 +21,58 @@ const Profile = () => {
   const [displayedName, setDisplayedName] = useState('');
   const [displayedPic, setDisplayedPic] = useState('');
 
+  const { 
+    address, 
+    contract, 
+    getUserCampaigns, 
+    userStatus, 
+    isLoadingUserStatus,
+    isSignupModalOpen,
+    setIsSignupModalOpen 
+  } = useStateContext();
+
+  // 🔒 RECIPIENT GUARD: Safely inspect user status before triggering modal
+  useEffect(() => {
+    if (isLoadingUserStatus || !address) return;
+
+    // Extract role/status safely regardless of whether userStatus is an object or string
+    const isRegisteredRecipient = 
+      userStatus === 'recipient' || 
+      userStatus?.role === 0 || 
+      userStatus?.role === '0' ||
+      userStatus?.role === 'recipient';
+
+    const isAdmin = 
+      userStatus === 'admin' || 
+      userStatus?.role === 1 || 
+      userStatus?.role === '1' ||
+      userStatus?.role === 'admin';
+
+    // If connected but neither a recipient nor an admin, prompt signup
+    if (!isRegisteredRecipient && !isAdmin) {
+      if (setIsSignupModalOpen) setIsSignupModalOpen(true);
+    } else {
+      if (setIsSignupModalOpen) setIsSignupModalOpen(false);
+    }
+  }, [address, userStatus, isLoadingUserStatus, setIsSignupModalOpen]);
+
   const handleFileChange = (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+    const file = e.target.files[0];
+    if (!file) return;
 
-  // File size safeguard check (e.g., maximum 4MB constraint)
-  if (file.size > 4 * 1024 * 1024) {
-    alert("This file is too large! Please choose an image smaller than 4MB.");
-    return;
-  }
+    if (file.size > 4 * 1024 * 1024) {
+      alert("This file is too large! Please choose an image smaller than 4MB.");
+      return;
+    }
 
-  const reader = new FileReader();
-  reader.onloadend = () => {
-    // Converts local storage binary to a local browser URL data string
-    setProfilePic(reader.result); 
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setProfilePic(reader.result); 
+    };
+    reader.readAsDataURL(file);
   };
-  reader.readAsDataURL(file);
-};
-  
-  const { address, contract, getUserCampaigns, userStatus } = useStateContext();
 
-  // Keep state hydrated cleanly when components mount or address contexts switch
+  // Keep local profile metadata hydrated cleanly
   useEffect(() => {
     if (address) {
       const savedProfile = localStorage.getItem(`profile_${address}`);
@@ -72,12 +104,12 @@ const Profile = () => {
   };
 
   useEffect(() => {
-    if(contract) fetchCampaigns();
+    if (contract) fetchCampaigns();
   }, [address, contract]);
 
   const handleSaveProfile = (e) => {
     e.preventDefault();
-    if(!fullName.trim()) return alert("Full name cannot be left blank");
+    if (!fullName.trim()) return alert("Full name cannot be left blank");
 
     const profileData = {
       name: fullName,
@@ -89,11 +121,9 @@ const Profile = () => {
     setDisplayedPic(profilePic);
     setIsProfileModalOpen(false);
     
-    // Forces navbar state context listener hook strings to update seamlessly
-    window.location.reload();
+    // Removed window.location.reload() to prevent forced page refresh
   };
 
-  // Convert raw blockchain Wei values safely into standard user metrics
   const formatToEth = (value) => {
     if (!value) return 0;
     const strVal = value.toString().split('.')[0];
@@ -105,8 +135,17 @@ const Profile = () => {
       }
     }
     return parseFloat(value);
-  }
+  };
 
+  const currentUnixTime = Math.floor(Date.now() / 1000);
+
+  const activeCount = campaigns.filter((campaign) => {
+    let parsedDeadline = Number(campaign.deadline);
+    if (parsedDeadline > 9999999999) parsedDeadline = Math.floor(parsedDeadline / 1000);
+    return parsedDeadline > currentUnixTime;
+  }).length;
+
+  const endedCount = campaigns.length - activeCount;
   const totalETH = campaigns.reduce((acc, item) => acc + formatToEth(item.amountCollected), 0).toFixed(2);
 
   return (
@@ -128,7 +167,6 @@ const Profile = () => {
       {/* --- SECTION 1: USER IDENTITY CARD --- */}
       <div className="w-full flex flex-col md:flex-row gap-8 items-center p-8 bg-white dark:bg-[#1c1c24] rounded-3xl border border-slate-200 dark:border-[#3a3a43] shadow-sm">
         
-        {/* Dynamic Image Slot */}
         <div className="w-[100px] h-[100px] rounded-2xl bg-[#2c2f32] flex items-center justify-center border-2 border-[#8c6dfd] overflow-hidden shadow-inner shrink-0">
           {displayedPic ? (
             <img src={displayedPic} alt="profile avatar" className="w-full h-full object-cover" />
@@ -138,7 +176,6 @@ const Profile = () => {
         </div>
         
         <div className="flex-1 text-center md:text-left">
-          {/* Displays full name cleanly or prompts the user configuration view */}
           <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
             {displayedName || (
               <span className="text-slate-400 dark:text-[#4b5264] italic text-lg font-normal">
@@ -148,7 +185,6 @@ const Profile = () => {
           </h2>
 
           <div className="flex flex-wrap justify-center md:justify-start items-center gap-3 mt-3">
-            {/* Pop-up view launcher for secure public address view */}
             <button 
               onClick={() => setIsAddressModalOpen(true)}
               className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#2c2f32] dark:hover:bg-[#3a3a43] text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-slate-200 dark:border-[#4b5264] transition-all cursor-pointer"
@@ -157,7 +193,7 @@ const Profile = () => {
             </button>
 
             <span className="px-4 py-1.5 bg-[#8c6dfd]/10 text-[#8c6dfd] rounded-full text-xs font-bold border border-[#8c6dfd]/20">
-              {userStatus?.role === 1 ? 'Academic Admin' : 'Research Recipient'}
+              {Number(userStatus?.role) === 1 ? 'Academic Admin' : 'Research Recipient'}
             </span>
             <span className="px-4 py-1.5 bg-slate-100 dark:bg-[#13131a] text-slate-500 dark:text-[#808191] rounded-full text-xs font-medium border border-slate-200 dark:border-[#3a3a43]">
               {userStatus?.domain || 'General Domain'}
@@ -171,41 +207,42 @@ const Profile = () => {
         </div>
       </div>
 
-      {/* --- SECTION 2: METRICS METERS GRID --- */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* --- SECTION 2: DYNAMIC STATUS BALANCE GRID --- */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="p-6 bg-white dark:bg-[#1c1c24] rounded-2xl border border-slate-200 dark:border-[#3a3a43] flex flex-col items-center shadow-sm">
-            <p className="text-slate-500 dark:text-[#808191] text-xs uppercase font-bold tracking-widest mb-2">My Active Proposals</p>
-            <h3 className="text-3xl font-black text-slate-900 dark:text-white">{campaigns.length}</h3>
+            <p className="text-slate-500 dark:text-[#808191] text-[10px] uppercase font-bold tracking-widest mb-2">Active Proposals</p>
+            <h3 className="text-3xl font-black text-slate-900 dark:text-white">{activeCount}</h3>
         </div>
         <div className="p-6 bg-white dark:bg-[#1c1c24] rounded-2xl border border-slate-200 dark:border-[#3a3a43] flex flex-col items-center shadow-sm">
-            <p className="text-slate-500 dark:text-[#808191] text-xs uppercase font-bold tracking-widest mb-2">Total Funding Secured</p>
+            <p className="text-slate-500 dark:text-[#808191] text-[10px] uppercase font-bold tracking-widest mb-2">Closed Pools</p>
+            <h3 className="text-3xl font-black text-slate-400 dark:text-slate-500">{endedCount}</h3>
+        </div>
+        <div className="p-6 bg-white dark:bg-[#1c1c24] rounded-2xl border border-slate-200 dark:border-[#3a3a43] flex flex-col items-center shadow-sm">
+            <p className="text-slate-500 dark:text-[#808191] text-[10px] uppercase font-bold tracking-widest mb-2">Total Funding Secured</p>
             <h3 className="text-3xl font-black text-[#4acd8d]">{totalETH} ETH</h3>
         </div>
         <div className="p-6 bg-[#8c6dfd] rounded-2xl flex flex-col items-center shadow-lg shadow-[#8c6dfd]/20">
-            <p className="text-white/70 text-xs uppercase font-bold tracking-widest mb-2">Network Ledger Connectivity</p>
+            <p className="text-white/70 text-[10px] uppercase font-bold tracking-widest mb-2">Ledger Connectivity</p>
             <h3 className="text-3xl font-black text-white">Active</h3>
         </div>
       </div>
 
       <hr className="border-slate-200 dark:border-[#3a3a43]" />
 
-      {/* --- SECTION 3: PROTOCOL DATA DISPLAY FEED --- */}
+      {/* --- SECTION 3: DISPLAY FULL IMMUTABLE CONTRACT RECORD SETS --- */}
       <DisplayCampaigns 
         title="Your Project Portfolio"
         isLoading={isLoading}
         campaigns={campaigns}
+        isProfileView={true}
       />
 
-      {/* --- BOTTOM SECTION: FOOLPROOF FOOTER ENTRY POINT --- */}
-      <div className="w-full flex flex-col items-center gap-4 mt-8 pt-6 border-t border-slate-200 dark:border-[#3a3a43]">
-        <p className="text-xs text-slate-400 dark:text-[#808191]">Want to alter your global interface preferences?</p>
-        <button 
-          onClick={() => setIsProfileModalOpen(true)}
-          className="bg-transparent border border-[#8c6dfd] hover:bg-[#8c6dfd]/10 text-[#8c6dfd] font-bold px-8 py-3 rounded-xl transition-all text-sm cursor-pointer"
-        >
-          {displayedName ? '⚙️ Update User Profile Data' : '🚀 Register App Profile Metadata'}
-        </button>
-      </div>
+      {/* --- CONTAINER DIALOG: RECIPIENT SIGNUP INTERCEPTOR --- */}
+      <SignupModal 
+        isOpen={isSignupModalOpen}
+        onClose={() => setIsSignupModalOpen && setIsSignupModalOpen(false)}
+        userAddress={address}
+      />
 
       {/* --- CONTAINER DIALOG: PROFILE SETTINGS EDITOR --- */}
       {isProfileModalOpen && (
@@ -227,84 +264,69 @@ const Profile = () => {
                 />
               </div>
 
-    <div className="flex flex-col gap-4">
-      <label className="text-xs font-bold text-slate-500 dark:text-[#808191] uppercase tracking-wider">
-        Profile Image *
-      </label>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        
-        {/* 📁 METHOD 1: TRADITIONAL FILE UPLOADER */}
-        <div className="flex flex-col items-center justify-center min-h-[140px] p-4 bg-slate-50 dark:bg-[#13131a] border-2 border-dashed border-slate-200 dark:border-[#3a3a43] rounded-xl hover:border-[#8c6dfd] transition-all relative group">
-          
-          {/* Hidden input field covering the box area */}
-          <input 
-            type="file" 
-            accept="image/*"
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-            onChange={handleFileChange}
-          />
+              <div className="flex flex-col gap-4">
+                <label className="text-xs font-bold text-slate-500 dark:text-[#808191] uppercase tracking-wider">
+                  Profile Image *
+                </label>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex flex-col items-center justify-center min-h-[140px] p-4 bg-slate-50 dark:bg-[#13131a] border-2 border-dashed border-slate-200 dark:border-[#3a3a43] rounded-xl hover:border-[#8c6dfd] transition-all relative group">
+                    <input 
+                      type="file" 
+                      accept="image/*"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      onChange={handleFileChange}
+                    />
+                    <div className="text-center flex flex-col items-center pointer-events-none z-0">
+                      <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">📁</span>
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                        Drag & Drop File Here
+                      </p>
+                      <p className="text-[11px] text-slate-400 mb-3">Supports PNG, JPG, WebP</p>
+                      <div className="px-3 py-1.5 bg-[#3a3a43] group-hover:bg-[#8c6dfd] text-white font-medium text-xs rounded-lg transition-colors shadow-sm">
+                        Browse Files
+                      </div>
+                    </div>
+                  </div>
 
-          <div className="text-center flex flex-col items-center pointer-events-none z-0">
-            <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">📁</span>
-            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-              Drag & Drop File Here
-            </p>
-            <p className="text-[11px] text-slate-400 mb-3">Supports PNG, JPG, WebP</p>
-            
-            {/* 🔘 Explicit Browse Button Layout Element */}
-            <div className="px-3 py-1.5 bg-[#3a3a43] group-hover:bg-[#8c6dfd] text-white font-medium text-xs rounded-lg transition-colors shadow-sm">
-              Browse Files
-            </div>
-          </div>
-        </div>
+                  <div className="flex flex-col justify-center p-4 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-xl">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm">🌐</span>
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Or Paste Image Web Link
+                      </p>
+                    </div>
+                    <input 
+                      type="url" 
+                      placeholder="e.g. https://images.com/avatar.png"
+                      className="w-full px-3 py-2.5 bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-lg text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd] text-xs transition-all"
+                      value={profilePic}
+                      onChange={(e) => setProfilePic(e.target.value)}
+                    />
+                  </div>
+                </div>
 
-        {/* 🔗 METHOD 2: TRADITIONAL URL INPUT BACKUP */}
-        <div className="flex flex-col justify-center p-4 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-xl">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-sm">🌐</span>
-            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-              Or Paste Image Web Link
-            </p>
-          </div>
-          
-          <input 
-            type="url" 
-            placeholder="e.g. https://images.com/avatar.png"
-            className="w-full px-3 py-2.5 bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-lg text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd] text-xs transition-all"
-            value={profilePic}
-            onChange={(e) => setProfilePic(e.target.value)}
-          />
-          <p className="text-[10px] text-slate-400 mt-2 italic">
-            Useful if your image asset is already hosted online.
-          </p>
-        </div>
-
-      </div>
-
-      {/* 🖼️ LIVE DYNAMIC IMAGE PREVIEW CARD */}
-      {profilePic && (
-        <div className="flex items-center gap-4 p-3 bg-[#1c1c24]/40 border border-emerald-500/20 rounded-xl mt-1 animate-fadeIn">
-          <img 
-            src={profilePic} 
-            alt="Profile Preview" 
-            className="w-12 h-12 object-cover rounded-xl border-2 border-[#4acd8d] shadow-md"
-            onError={(e) => {
-              // Fallback flag if a manually typed URL breaks
-              e.target.style.display = 'none';
-            }}
-          />
-          <div>
-            <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-              <span>✅</span> Image Linked Successfully
-            </p>
-            <p className="text-[11px] text-slate-400 max-w-[400px] truncate">
-              Source: {profilePic}
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
+                {profilePic && (
+                  <div className="flex items-center gap-4 p-3 bg-[#1c1c24]/40 border border-emerald-500/20 rounded-xl mt-1 animate-fadeIn">
+                    <img 
+                      src={profilePic} 
+                      alt="Profile Preview" 
+                      className="w-12 h-12 object-cover rounded-xl border-2 border-[#4acd8d] shadow-md"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                    <div>
+                      <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                        <span>✅</span> Image Linked Successfully
+                      </p>
+                      <p className="text-[11px] text-slate-400 max-w-[400px] truncate">
+                        Source: {profilePic}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <div className="flex gap-4 mt-4">
                 <button 

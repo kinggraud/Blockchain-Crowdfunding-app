@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { logo } from '../assets'; 
 import { navlinks } from '../constants';
+import { useStateContext } from '../context';
 
 const Icon = ({ styles, name, imgUrl, isActive, disabled, handleClick }) => (
   <motion.div
@@ -32,13 +33,14 @@ const Icon = ({ styles, name, imgUrl, isActive, disabled, handleClick }) => (
       />
     )}
   </motion.div>
-)
+);
 
 const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation(); 
 
-  // Hard enforce light mode globally on component mount
+  const { address, userStatus, setIsSignupModalOpen } = useStateContext() || {};
+
   useEffect(() => {
     document.documentElement.classList.remove('dark');
     localStorage.setItem('theme', 'light');
@@ -49,7 +51,7 @@ const Sidebar = () => {
     
     if (path === '/') return 'dashboard';
     if (path === '/create-campaign') return 'campaign';
-    if (path === '/profile') return 'profile';
+    if (path === '/profile') return 'profile'; // Single unified route
     if (path === '/withdraw') return 'withdraw'; 
     if (path === '/logout') return 'logout';
     
@@ -57,6 +59,37 @@ const Sidebar = () => {
   };
 
   const isActive = getActiveLink();
+
+  const handleNavClick = (link) => {
+    if (link.disabled) return;
+
+    if (link.name === 'profile') {
+      const currentAddress = address || window.ethereum?.selectedAddress;
+
+      if (!currentAddress) {
+        alert("Please connect your wallet first!");
+        return;
+      }
+
+      const savedStatus = userStatus || JSON.parse(localStorage.getItem(`user_status_${currentAddress}`) || "null");
+
+      // Check if user has registered (role 1 = Admin, role 0 = Recipient)
+      if (savedStatus && (Number(savedStatus.role) === 1 || Number(savedStatus.role) === 0)) {
+        // ALWAYS route to /profile regardless of role
+        navigate('/profile');
+      } else {
+        // Not registered -> Open Modal
+        if (setIsSignupModalOpen) {
+          setIsSignupModalOpen(true);
+        } else {
+          alert("Please complete your account registration.");
+        }
+      }
+      return;
+    }
+
+    navigate(link.link);
+  };
 
   return (
     <div className="flex justify-between items-center flex-col sticky top-5 h-[93vh] z-50">
@@ -82,17 +115,11 @@ const Sidebar = () => {
               <Icon
                 {...link}
                 isActive={isActive}
-                handleClick={() => {
-                  if (!link.disabled) {
-                    navigate(link.link);
-                  }
-                }}
+                handleClick={() => handleNavClick(link)}
               />
             </div>
           ))}
         </div>
-        
-        {/* Theme toggle button has been removed completely from here */}
         <div className="w-2 h-2" />
 
       </div>
