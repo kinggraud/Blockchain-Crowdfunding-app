@@ -1,4 +1,4 @@
-import React, { useContext, createContext, useState, useEffect } from 'react';
+import React, { useContext, createContext, useState, useEffect, useCallback } from 'react';
 import { useAddress, useContract, useContractWrite, useConnect, useDisconnect, metamaskWallet } from '@thirdweb-dev/react';
 import { ethers } from 'ethers';
 
@@ -17,13 +17,23 @@ export const StateContextProvider = ({ children }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSignupModalOpen, setIsSignupModalOpen] = useState(false);
+  const [signupInitialRole, setSignupInitialRole] = useState(null); // 'admin' | 'recipient' | null
 
-  // 👤 Initialize userStatus immediately from LocalStorage if available
+  // 👤 Role-based Account Profiles
+  const [adminStatus, setAdminStatus] = useState(null);
+  const [recipientStatus, setRecipientStatus] = useState(null);
+  const [activeRole, setActiveRole] = useState('recipient'); // 'admin' | 'recipient'
+
+  // Backward-compatible fallback status pointer
   const [userStatus, setUserStatus] = useState(() => {
-    const currentAddress = address || window.ethereum?.selectedAddress;
+    const currentAddress = address || (typeof window !== 'undefined' && window.ethereum?.selectedAddress);
     if (!currentAddress) return { exists: false, role: 0, domain: "", isVerified: false };
     
-    const saved = localStorage.getItem(`user_status_${currentAddress}`);
+    const savedRecipient = localStorage.getItem(`recipient_account_${currentAddress}`) || localStorage.getItem(`recipient_status_${currentAddress}`);
+    const savedAdmin = localStorage.getItem(`admin_account_${currentAddress}`) || localStorage.getItem(`admin_status_${currentAddress}`);
+    const savedGeneral = localStorage.getItem(`user_status_${currentAddress}`);
+    
+    const saved = savedRecipient || savedAdmin || savedGeneral;
     return saved ? JSON.parse(saved) : { exists: false, role: 0, domain: "", isVerified: false };
   });
 
@@ -36,118 +46,159 @@ export const StateContextProvider = ({ children }) => {
     }
   };
 
-  // --- 2. CHECK USER STATUS (LocalStorage First, Contract Second) ---
-  const checkUserStatus = async () => {
-    const currentAddress = address || window.ethereum?.selectedAddress;
-    if (!currentAddress) return;
-
-    // Check Local Storage first
-    const savedLocal = localStorage.getItem(`user_status_${currentAddress}`);
-    if (savedLocal) {
-      setUserStatus(JSON.parse(savedLocal));
+  // --- 2. CHECK USER STATUS (LocalStorage, Session, & Contract Sync) ---
+  const checkUserStatus = useCallback(async () => {
+    const currentAddress = address || (typeof window !== 'undefined' && window.ethereum?.selectedAddress);
+    if (!currentAddress) {
+      setAdminStatus(null);
+      setRecipientStatus(null);
+      setUserStatus({ exists: false, role: 0, domain: "", isVerified: false });
       return;
     }
 
-    // Fallback to Smart Contract
-    if (contract) {
+    // Check Local Storage for both profile keys
+    const savedAdmin = localStorage.getItem(`admin_account_${currentAddress}`) || localStorage.getItem(`admin_status_${currentAddress}`);
+    const savedRecipient = localStorage.getItem(`recipient_account_${currentAddress}`) || localStorage.getItem(`recipient_status_${currentAddress}`);
+    const savedGeneral = localStorage.getItem(`user_status_${currentAddress}`);
+
+    const parsedAdmin = savedAdmin ? JSON.parse(savedAdmin) : null;
+    const parsedRecipient = savedRecipient ? JSON.parse(savedRecipient) : (savedGeneral ? JSON.parse(savedGeneral) : null);
+
+    if (parsedAdmin) setAdminStatus(parsedAdmin);
+    if (parsedRecipient) setRecipientStatus(parsedRecipient);
+
+    if (parsedRecipient) {
+      setUserStatus(parsedRecipient);
+    } else if (parsedAdmin) {
+      setUserStatus(parsedAdmin);
+    }
+
+    // Fallback to Smart Contract if neither local profile is found
+    if (contract && !parsedAdmin && !parsedRecipient) {
       try {
         const data = await contract.call('users', [currentAddress]);
-        if (data && data.exists) {
+        if (data && (data.exists || data.isRegistered)) {
           const status = {
-            role: data.role,
-            domain: data.domain,
-            isVerified: data.isVerified,
-            exists: data.exists
+            address: currentAddress,
+            role: Number(data.role),
+            domain: data.domain || "general",
+            isVerified: data.isVerified ?? true,
+            exists: true
           };
+
+          if (Number(data.role) === 1) {
+            setAdminStatus(status);
+            localStorage.setItem(`admin_status_${currentAddress}`, JSON.stringify(status));
+          } else {
+            setRecipientStatus(status);
+            localStorage.setItem(`recipient_status_${currentAddress}`, JSON.stringify(status));
+          }
           setUserStatus(status);
-          localStorage.setItem(`user_status_${currentAddress}`, JSON.stringify(status));
         }
       } catch (error) {
         console.error("Failed to fetch user status from contract:", error);
       }
     }
-  };
+  }, [address, contract]);
 
-  // Sync profile state whenever address changes
+  // Sync profile state ONLY when address changes
   useEffect(() => {
     if (address) {
       checkUserStatus();
     } else {
+      setAdminStatus(null);
+      setRecipientStatus(null);
       setUserStatus({ exists: false, role: 0, domain: "", isVerified: false });
     }
-  }, [address, contract]);
+  }, [address]);
 
-  // Fetch live ETH conversion rates on mount
+  // Fetch live ETH conversion rates on mount safely
   useEffect(() => {
+    let isMounted = true;
+
     const fetchLiveRates = async () => {
       try {
         const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd,ngn');
         const data = await response.json();
         
-        if (data?.ethereum) {
+        if (isMounted && data?.ethereum) {
           setEthPrice({
-            usd: data.ethereum.usd,
-            ngn: data.ethereum.ngn
+            usd: data.ethereum.usd || 3000,
+            ngn: data.ethereum.ngn || 4500000
           });
         }
       } catch (error) {
-        console.error("Failed to sync live exchange matrices:", error);
+        console.error("Failed to sync live exchange rates:", error);
       }
     };
 
     fetchLiveRates();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // --- 3. REGISTER USER ---
   const registerUser = async (form) => {
-  try {
-    setIsLoading(true);
-    const roleNumber = form.role === 'admin' ? 1 : 0;
-    const domain = form.domain || "general";
+    try {
+      setIsLoading(true);
+      const isFormAdmin = form.role === 'admin' || form.role === 1;
+      const roleNumber = isFormAdmin ? 1 : 0;
+      const domain = form.domain || "general";
 
-    if (contract && address) {
-      // 1. Read existing on-chain user mapping/status first
-      let isAlreadyRegistered = false;
+      if (contract && address) {
+        let isAlreadyRegistered = false;
 
-      try {
-        const existingUser = await contract.call('users', [address]);
-        // Handle boolean flag or non-zero address/exists parameter from contract struct
-        if (existingUser && (existingUser.exists || existingUser.isRegistered)) {
-          isAlreadyRegistered = true;
+        try {
+          const existingUser = await contract.call('users', [address]);
+          if (existingUser && (existingUser.exists || existingUser.isRegistered)) {
+            isAlreadyRegistered = true;
+          }
+        } catch (readErr) {
+          console.warn("Could not read on-chain user status, proceeding:", readErr);
         }
-      } catch (readErr) {
-        console.warn("Could not read on-chain user status, proceeding with write check:", readErr);
+
+        if (!isAlreadyRegistered) {
+          const tx = await contract.call('registerUser', [roleNumber, domain]);
+          console.log("On-chain registration successful", tx);
+        }
       }
 
-      // 2. Only issue transaction if the address is NOT registered on-chain
-      if (!isAlreadyRegistered) {
-        const tx = await contract.call('registerUser', [roleNumber, domain]);
-        console.log("On-chain registration successful", tx);
+      const newUserData = {
+        address,
+        role: roleNumber,
+        domain,
+        organization: form.organization || "Academic Institution",
+        isVerified: true,
+        exists: true,
+      };
+
+      if (isFormAdmin) {
+        localStorage.setItem(`admin_status_${address}`, JSON.stringify(newUserData));
+        localStorage.setItem(`admin_account_${address}`, JSON.stringify(newUserData));
+        sessionStorage.setItem(`admin_session_${address}`, 'true');
+        setAdminStatus(newUserData);
+        setActiveRole('admin');
       } else {
-        console.log("User already exists on-chain. Bypassing contract call and syncing local state...");
+        localStorage.setItem(`recipient_status_${address}`, JSON.stringify(newUserData));
+        localStorage.setItem(`recipient_account_${address}`, JSON.stringify(newUserData));
+        sessionStorage.setItem(`recipient_session_${address}`, 'true');
+        setRecipientStatus(newUserData);
+        setActiveRole('recipient');
       }
+
+      localStorage.setItem(`user_status_${address}`, JSON.stringify(newUserData));
+      setUserStatus(newUserData);
+
+      return newUserData;
+    } catch (error) {
+      console.error("Registration failure", error);
+      throw error;
+    } finally {
+      setIsLoading(false);
     }
-
-    const newUserData = {
-      address,
-      role: roleNumber,
-      domain,
-      organization: form.organization || "Academic Institution",
-      isVerified: true,
-      exists: true,
-    };
-
-    localStorage.setItem(`user_status_${address}`, JSON.stringify(newUserData));
-    setUserStatus(newUserData);
-
-    return newUserData;
-  } catch (error) {
-    console.error("Registration failure", error);
-    throw error;
-  } finally {
-    setIsLoading(false);
-  }
-};
+  };
 
   // --- 4. CREATE CAMPAIGN ---
   const createCampaign = async (form) => {
@@ -155,20 +206,27 @@ export const StateContextProvider = ({ children }) => {
 
     try {
       setIsLoading(true);
-      const tx = await createCampaignFn({
-        args: [
-          address,
-          form.title,
-          form.description,
-          form.target,
-          new Date(form.deadline).getTime(),
-          form.image
-        ]
-      });
+      const args = [
+        address,                  // owner
+        form.title,                // title
+        form.description,          // description
+        form.target,               // target in Wei
+        form.deadline,             // deadline in Unix timestamp
+        form.image                 // image URL
+      ];
 
-      console.log("Campaign created successfully", tx);
+      let tx;
+      if (createCampaignFn) {
+        tx = await createCampaignFn({ args });
+      } else if (contract) {
+        tx = await contract.call('createCampaign', args);
+      }
+
+      console.log("Campaign created successfully:", tx);
+      return tx;
     } catch (error) {
       console.error("Failed to create campaign:", error);
+      throw error; // Re-throw to allow component level alert handling
     } finally {
       setIsLoading(false);
     }
@@ -177,24 +235,23 @@ export const StateContextProvider = ({ children }) => {
   // --- 5. FETCH ALL CAMPAIGNS ---
   const getCampaigns = async () => {
     try {
+      if (!contract) return [];
       const campaigns = await contract.call('getCampaigns');
 
       const parsedCampaigns = campaigns.map((c, i) => {
-        const ethTarget = ethers.utils.formatEther(c.target.toString());
-        const ethAmountCollected = ethers.utils.formatEther(c.amountCollected.toString());
-        const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'NGN';
-
-        const finalTarget = Math.round(Number(ethTarget));
-        const finalAmountCollected = Math.round(Number(ethAmountCollected));
+        const ethTarget = ethers.utils ? ethers.utils.formatEther(c.target.toString()) : (Number(c.target) / 1e18).toString();
+        const ethAmountCollected = ethers.utils ? ethers.utils.formatEther(c.amountCollected.toString()) : (Number(c.amountCollected) / 1e18).toString();
+        const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'USD';
+        const deadlineVal = c.deadline?.toNumber ? c.deadline.toNumber() : Number(c.deadline);
 
         return {
           owner: c.owner,
           title: c.title,
           description: c.description,
-          target: finalTarget,
-          amountCollected: finalAmountCollected,
+          target: parseFloat(ethTarget),
+          amountCollected: parseFloat(ethAmountCollected),
           currency: selectedCurrency,
-          deadline: c.deadline.toNumber(),
+          deadline: deadlineVal,
           image: c.image,
           pId: i,
           rawEthTarget: ethTarget,
@@ -212,20 +269,22 @@ export const StateContextProvider = ({ children }) => {
   // --- 6. FETCH USER SPECIFIC CAMPAIGNS ---
   const getUserCampaigns = async () => {
     const allCampaigns = await getCampaigns();
-    return allCampaigns.filter((campaign) => campaign.owner === address);
+    return allCampaigns.filter((campaign) => campaign.owner?.toLowerCase() === address?.toLowerCase());
   };
 
   // --- 7. DONATE TO CAMPAIGN ---
   const donate = async (pId, amount) => {
     try {
       setIsLoading(true);
+      const weiValue = ethers.utils ? ethers.utils.parseEther(amount.toString()) : ethers.parseEther(amount.toString());
       const data = await contract.call('donateToCampaign', [pId], { 
-        value: ethers.utils.parseEther(amount) 
+        value: weiValue 
       });
 
       return data;
     } catch (error) {
       console.error("Donation failed:", error);
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -234,15 +293,17 @@ export const StateContextProvider = ({ children }) => {
   // --- 8. GET DONATIONS HISTORY ---
   const getDonations = async (pId) => {
     try {
+      if (!contract) return [];
       const donations = await contract.call('getDonators', [pId]);
-      const numberOfDonations = donations[0].length;
+      const numberOfDonations = donations[0]?.length || 0;
 
       const parsedDonations = [];
 
       for(let i = 0; i < numberOfDonations; i++) {
+        const ethAmount = ethers.utils ? ethers.utils.formatEther(donations[1][i].toString()) : (Number(donations[1][i]) / 1e18).toString();
         parsedDonations.push({
           donator: donations[0][i],
-          donation: ethers.utils.formatEther(donations[1][i].toString())
+          donation: ethAmount
         });
       }
 
@@ -258,11 +319,10 @@ export const StateContextProvider = ({ children }) => {
     try {
       setIsLoading(true);
       const data = await contract.call('claimRefund', [pId]);
-      console.log("Refund successful", data);
       return data;
     } catch (error) {
-      console.error("REASON FOR FAILURE:", error.reason || error.message);
       console.error("Refund failed", error);
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -273,10 +333,10 @@ export const StateContextProvider = ({ children }) => {
     try {
       setIsLoading(true);
       const data = await contract.call('withdrawFunds', [pId]);
-      console.log("Withdrawal successful", data);
       return data;
     } catch (error) {
       console.error("Withdrawal failed", error);
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -290,8 +350,16 @@ export const StateContextProvider = ({ children }) => {
         isLoading,
         userStatus,
         setUserStatus,
+        adminStatus,
+        setAdminStatus,
+        recipientStatus,
+        setRecipientStatus,
+        activeRole,
+        setActiveRole,
         isSignupModalOpen,
         setIsSignupModalOpen,
+        signupInitialRole,
+        setSignupInitialRole,
         disconnect,    
         connectWallet,
         createCampaign,

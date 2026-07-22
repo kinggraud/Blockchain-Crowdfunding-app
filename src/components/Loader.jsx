@@ -1,4 +1,4 @@
-import React from 'react'
+import React from 'react';
 import { loader } from '../assets'; // Ensure you have a loader/spinner icon in assets
 
 const Loader = () => {

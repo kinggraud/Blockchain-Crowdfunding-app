@@ -6,9 +6,10 @@ import SignupModal from './SignupModal'; // Adjust import path if needed
 const AdminGuard = ({ children }) => {
   const navigate = useNavigate();
   const context = useStateContext();
-  
+
   const address = context?.address;
   const userStatus = context?.userStatus;
+  const adminStatus = context?.adminStatus;
   const isLoadingUserStatus = context?.isLoadingUserStatus ?? false;
 
   const [isModalOpen, setIsModalOpen] = useState(true);
@@ -31,23 +32,36 @@ const AdminGuard = ({ children }) => {
     return null;
   }
 
-  // 3. Verified Admin -> Render protected content
-  if (userStatus === 'admin') {
+  // 3. Retrieve local storage admin record (Fallback for client-side registration)
+  const storedAdmin = localStorage.getItem(`admin_account_${address}`);
+  const localAdminRecord = storedAdmin ? JSON.parse(storedAdmin) : null;
+
+  // 4. Multi-level admin validation check
+  const isAdmin = 
+    userStatus === 'admin' || 
+    adminStatus?.isAdmin === true || 
+    adminStatus?.role === 1 || 
+    adminStatus?.role === '1' ||
+    localAdminRecord?.role === 1 || 
+    localAdminRecord?.isAdmin === true;
+
+  // Render protected content if any admin criteria is met
+  if (isAdmin) {
     return children;
   }
 
-  // 4. Connected but NOT Admin -> Force open SignupModal immediately
+  // 5. Connected but NOT Admin -> Force open SignupModal immediately
   return (
-    <div className="min-h-screen bg-[#13131a] flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-[#13131a] flex flex-col items-center justify-center p-4 font-epilogue">
       <div className="text-center space-y-4 max-w-[400px]">
         <div className="w-16 h-16 bg-[#8c6dfd]/10 text-[#8c6dfd] rounded-full flex items-center justify-center text-3xl mx-auto border border-[#8c6dfd]/20">
           🛡️
         </div>
-        <h2 className="text-white text-2xl font-bold font-epilogue">Admin Verification Required</h2>
+        <h2 className="text-white text-2xl font-bold">Admin Verification Required</h2>
         <p className="text-[#808191] text-sm">
-          You need an active on-chain administrator registration to access this panel.
+          You need an active administrator registration to access this panel.
         </p>
-        
+
         <button
           onClick={() => setIsModalOpen(true)}
           className="px-6 py-3.5 bg-[#8c6dfd] hover:bg-[#7a5be0] text-white font-bold rounded-xl shadow-lg transition-all cursor-pointer w-full"
@@ -56,16 +70,17 @@ const AdminGuard = ({ children }) => {
         </button>
       </div>
 
-      <SignupModal 
-        isOpen={isModalOpen} 
+      <SignupModal
+        isOpen={isModalOpen}
         defaultStep="admin-domain"
         onClose={() => {
           setIsModalOpen(false);
-          // Send to home if closed without completing registration
-          if (userStatus !== 'admin') {
+          // Re-check local storage or context before redirecting to prevent unexpected kick-outs
+          const updatedLocal = localStorage.getItem(`admin_account_${address}`);
+          if (userStatus !== 'admin' && !updatedLocal) {
             navigate('/home');
           }
-        }} 
+        }}
       />
     </div>
   );

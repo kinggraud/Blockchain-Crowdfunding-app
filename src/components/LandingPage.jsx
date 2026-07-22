@@ -4,6 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 // 🪙 Pull in Thirdweb connection hooks for direct wallet management
 import { useAddress, useConnect, MetaMaskWallet } from '@thirdweb-dev/react';
 
+// 🔐 Import your new AuthModal component
+import AuthModal from '../components/AuthModal';
+
 // --- IMAGE CAROUSEL ARRAYS ---
 const educationImages = [
   "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?q=80&w=600&auto=format&fit=crop", 
@@ -57,6 +60,9 @@ const LandingPage = ({ onGetStarted }) => {
   const connect = useConnect();
   const metamaskConfig = new MetaMaskWallet();
 
+  // 🔑 State for controlling Auth Modal popup visibility
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
   // Helper function to handle cleaning up the scroll states safely
   const resetScrollPosition = () => {
     const mainScroll = document.getElementById("main-scroll-container");
@@ -67,34 +73,13 @@ const LandingPage = ({ onGetStarted }) => {
     window.scrollTo(0, 0);
   };
 
-  // 🛠️ EXCLUSIVE MANUAL CLICK HANDLER (No auto-redirects anymore)
-  const handleGetStartedClick = async () => {
-    // Run the app layout updates
-    if (onGetStarted) onGetStarted();
-
-    if (address) {
-      // CASE 1: Wallet is ALREADY connected. Just clear scroll and navigate immediately.
-      resetScrollPosition();
-      navigate('/'); 
-    } else {
-      // CASE 2: Wallet is NOT connected. Trigger popup, wait for approval, then navigate.
-      try {
-        await connect(metamaskConfig);
-        resetScrollPosition();
-        navigate('/home');
-      } catch (error) {
-        console.error("Wallet connection declined or closed by user:", error);
-      }
-    }
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#13131a] text-slate-900 dark:text-white transition-colors duration-300 overflow-x-hidden font-epilogue">
       
       {/* 🌟 HERO BANNER CONTAINER */}
       <section className="max-w-[1280px] mx-auto px-4 pt-12 pb-6 flex flex-col items-center text-center relative">
         
-        {/* 🔙 BACK TO APP DASHBOARD NAVIGATION LINK BUTTON */}
+        {/* 🔙 BACK TO APP DASHBOARD NAVIGATION LINK BUTTON 
         <div className="w-full max-w-[900px] flex justify-start mb-4">
           <button 
             onClick={() => {
@@ -107,7 +92,7 @@ const LandingPage = ({ onGetStarted }) => {
             📊 Jump to App Dashboard
           </button>
         </div>
-
+        */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -196,16 +181,24 @@ const LandingPage = ({ onGetStarted }) => {
         <div className="max-w-[1280px] mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="text-center sm:text-left">
             <h4 className="font-bold text-base">Ready to interact with the next generation of charity?</h4>
-            <p className="text-xs text-slate-500 dark:text-[#808191]">Connect your Web3 Web-wallet safely to log in.</p>
+            <p className="text-xs text-slate-500 dark:text-[#808191]">Create an account or log in to manage your campaigns.</p>
           </div>
-          <button
-            onClick={handleGetStartedClick}
-            className="w-full sm:w-auto px-8 py-4 bg-[#1dc071] hover:bg-[#17a360] text-white font-bold text-[16px] rounded-[16px] transition-all transform hover:scale-105 shadow-xl shadow-[#1dc071]/20 cursor-pointer text-center"
+          
+          <button 
+            onClick={() => setIsAuthOpen(true)}
+            className="px-8 py-3 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-sm transition-all shadow-lg cursor-pointer"
           >
-            {address ? "🚀 Enter Home Page" : "🔌 Connect Wallet & Start"}
+            Get Started
           </button>
         </div>
       </footer>
+
+      {/* Auth Modal Popup Component */}
+      <AuthModal 
+        isOpen={isAuthOpen} 
+        onClose={() => setIsAuthOpen(false)} 
+      />
+
     </div>
   );
 };

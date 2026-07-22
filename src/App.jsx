@@ -1,28 +1,63 @@
-import React, { useState } from 'react';
-import { Route, Routes, Navigate } from 'react-router-dom';
+import React from 'react';
+import { Route, Routes, Navigate, useLocation } from 'react-router-dom';
 
 import LandingPage from './components/LandingPage';
-import { Sidebar, Navbar, SignupModal } from './components';
+import { Sidebar, Navbar, SignupModal, AuthModal } from './components';
 import Footer from "./components/Footer";
 import { Logout } from './pages';
 import { CampaignDetails, CreateCampaign, Home, Profile, HelpCenter, AdminProfile } from './pages';
 import AdminGuard from './components/AdminGuard';
+import { useStateContext } from './context';
 
 const App = () => {
-  // 🚀 Added state to control whether to show the Landing Page or the main Dashboard
-  const [hasStarted, setHasStarted] = useState(false);
+  const location = useLocation();
 
-  // If the user hasn't clicked "Get Started" yet, show the full-screen landing page layout
-  if (!hasStarted) {
-    return <LandingPage onGetStarted={() => setHasStarted(true)} />;
+  const context = useStateContext() || {};
+  const { 
+    user, 
+    authLoading = false,
+    isSignupModalOpen = false, 
+    setIsSignupModalOpen, 
+    isAuthModalOpen = false,
+    setIsAuthModalOpen,
+    signupInitialRole = null, 
+    address = '' 
+  } = context;
+
+  // 1️⃣ Loading screen while Firebase checks persistent session on refresh
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-[#1c1c24] flex justify-center items-center font-epilogue">
+        <p className="animate-pulse text-[#8c6dfd] font-bold text-lg">Initializing Session...</p>
+      </div>
+    );
   }
 
-  // Once started, reveal the core App layout with navigation tools and router switches
+  // 2️⃣ STANDALONE LANDING PAGE ROUTE
+  // Renders pure LandingPage without Sidebar, Navbar, or Dashboard wrappers
+  if (location.pathname === '/landing') {
+    return (
+      <>
+        <LandingPage />
+
+        {/* Global Auth Modal in case user clicks Sign In on Landing Page */}
+        {setIsAuthModalOpen && (
+          <AuthModal 
+            isOpen={isAuthModalOpen}
+            onClose={() => setIsAuthModalOpen(false)}
+          />
+        )}
+      </>
+    );
+  }
+
+  // 3️⃣ MAIN APP DASHBOARD LAYOUT
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#1c1c24] transition-colors duration-300">
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#1c1c24] transition-colors duration-300 font-epilogue">
       
       <div className="relative sm:px-8 p-4 bg-slate-50 dark:bg-[#13131a] flex flex-row flex-1 transition-colors duration-300">
 
+        {/* Sidebar navigation */}
         <div className="sm:flex hidden mr-10 relative">
           <Sidebar />
         </div>
@@ -31,31 +66,50 @@ const App = () => {
           <Navbar />
           
           <Routes> 
-            <Route path="/landing" element={<LandingPage onGetStarted={() => setHasStarted(true)} />} />
+            {/* Main App Dashboard */}
             <Route path="/" element={<Home />} />
             <Route path="/home" element={<Navigate to="/" replace />} />
+            
+            {/* Recipient Profile & Campaign Actions */}
             <Route path="/profile" element={<Profile />} />
             <Route path="/create-campaign" element={<CreateCampaign />} />
             <Route path="/campaign-details/:id" element={<CampaignDetails />} />
-            <Route path="/signup" element={<SignupModal />} />
             <Route path="/help" element={<HelpCenter />} />
             <Route path="/logout" element={<Logout />} />
 
-            <Route 
-            path="/admin-configuration" 
-            element={
-              <AdminGuard>
-                <AdminProfile />
-              </AdminGuard>
-            } 
-          />
+            {/* Admin Configuration Route */}
+            <Route path="/admin-configuration" element={<AdminProfile />} />
+            
+            {/* Alias Directs */}
+            <Route path="/admin" element={<Navigate to="/admin-configuration" replace />} />
+            <Route path="/admin-profile" element={<Navigate to="/admin-configuration" replace />} />
+
+            {/* Catch-all Fallback */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
         
       </div>
+      
+      {/* 🔐 Global Registration Modal */}
+      <SignupModal 
+        isOpen={isSignupModalOpen}
+        initialRole={signupInitialRole}
+        onClose={() => setIsSignupModalOpen && setIsSignupModalOpen(false)}
+        userAddress={address}
+      />
+
+      {/* 🔑 Global Auth (Sign In / Sign Up) Modal */}
+      {setIsAuthModalOpen && (
+        <AuthModal 
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+        />
+      )}
+
       <Footer />
     </div>
-  )
-}
+  );
+};
 
 export default App;

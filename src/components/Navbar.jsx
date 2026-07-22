@@ -2,24 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 
-import { ConnectButton } from "thirdweb/react";
-import { createWallet, inAppWallet } from "thirdweb/wallets";
 import { useStateContext } from '../context';
 import { CustomButton } from './';
 import { logo, menu, search, thirdweb } from '../assets';
 import { navlinks } from '../constants';
 import SignupModal from './SignupModal';
-
-const wallets = [
-  inAppWallet({
-    auth: {
-      strategies: ["google", "email"], // Allows seamless mobile login without an app!
-    },
-  }),
-  createWallet("io.metamask"),
-  createWallet("com.coinbase.wallet"),
-  createWallet("org.uniswap"), // Automatically falls back to WalletConnect on mobile
-];
 
 const Navbar = () => {
   const navigate = useNavigate();
@@ -30,16 +17,21 @@ const Navbar = () => {
   const [hasProfile, setHasProfile] = useState(false);
   const [profilePic, setProfilePic] = useState('');
 
-  // Added context parameters: `searchTerm` and `setSearchTerm`
+  // Context parameters
   const { address, connectWallet, userStatus, searchTerm, setSearchTerm } = useStateContext(); 
 
   useEffect(() => {
     if (address) {
       const savedProfile = localStorage.getItem(`profile_${address}`);
       if (savedProfile) {
-        const { image } = JSON.parse(savedProfile);
-        setHasProfile(true);
-        setProfilePic(image || '');
+        try {
+          const { image } = JSON.parse(savedProfile);
+          setHasProfile(true);
+          setProfilePic(image || '');
+        } catch (e) {
+          setHasProfile(false);
+          setProfilePic('');
+        }
       } else {
         setHasProfile(false);
         setProfilePic('');
@@ -51,37 +43,39 @@ const Navbar = () => {
   }, [address]);
 
   // 🔍 AUTOMATED METAMASK TRAPPING LOGIC
-  const handleButtonClick = async () => {
-    if (!address) {
-      // 📱 Check if the user is tapping from a mobile phone or tablet
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      
-      if (isMobile) {
-        // Strip out 'http://' or 'https://' to provide a clean deep-link string
-        const cleanUrl = window.location.href.replace(/^https?:\/\//, '');
-        
-        // Force-opens the MetaMask app and loads your specific Vercel URL instantly
-        window.location.href = `https://metamask.app.link/dapp/${cleanUrl}`;
-        return;
-      }
-
-      // 💻 Desktop execution behavior (triggers browser extension seamlessly)
-      try {
-        const metamask = createWallet("io.metamask");
-        await connectWallet(metamask);
-      } catch (error) {
-        console.error("MetaMask connection or onboarding failed:", error);
-      }
-    } else if (!userStatus?.exists) {
-      setIsModalOpen(true);
-    } else {
-      navigate('create-campaign');
+  // inside Navbar.jsx -> handleButtonClick
+const handleButtonClick = async () => {
+  if (!address) {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      const cleanUrl = window.location.href.replace(/^https?:\/\//, '');
+      window.location.href = `https://metamask.app.link/dapp/${cleanUrl}`;
+      return;
     }
-  };
+
+    // 🚨 Safely check if MetaMask/Ethereum provider is installed in the browser first
+    if (typeof window.ethereum === 'undefined') {
+      alert("MetaMask is not installed! Please install the MetaMask extension or open this site inside the MetaMask app.");
+      window.open('https://metamask.io/download/', '_blank');
+      return;
+    }
+
+    try {
+      await connectWallet();
+    } catch (error) {
+      console.error("MetaMask connection failed:", error);
+    }
+  } else if (!userStatus?.exists) {
+    setIsModalOpen(true);
+  } else {
+    navigate('/create-campaign');
+  }
+};
   return (
     <div className="flex md:flex-row flex-col-reverse justify-between mb-[35px] gap-6 relative z-50 font-epilogue">
       
-      {/* 🔍 INTEGRATED GLOBAL SEARCH BAR WRAPPER */}
+      {/* 🔍 SEARCH BAR WRAPPER */}
       <div className="lg:flex-1 flex flex-row max-w-[458px] py-2 pl-4 pr-2 h-[52px] bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-xl hover:border-[#8c6dfd]/50 transition-all duration-300 focus-within:ring-2 ring-[#8c6dfd]/20 items-center shadow-sm">
         <input 
           type="text" 
@@ -91,7 +85,6 @@ const Navbar = () => {
           className="flex w-full font-normal text-[14px] placeholder:text-slate-400 dark:placeholder:text-[#4b5264] text-slate-800 dark:text-white bg-transparent outline-none"
         />
         
-        {/* Clear Button Option for User Friendliness */}
         {searchTerm && (
           <button 
             onClick={() => setSearchTerm('')} 
@@ -136,7 +129,7 @@ const Navbar = () => {
           handleClick={handleButtonClick}
         />
 
-        {/* PREMIUM ACCOUNT AVATAR MATTE WRAPPER */}
+        {/* ACCOUNT AVATAR */}
         <Link to="/profile">
           <motion.div 
             whileHover={{ scale: 1.05 }}
@@ -151,7 +144,7 @@ const Navbar = () => {
         </Link>
       </div>
       
-      {/* 📱 PORTABLE MOBILE PANEL CONTAINER */}
+      {/* 📱 MOBILE PANEL */}
       <div className="sm:hidden flex justify-between items-center relative h-[56px] bg-white dark:bg-[#1c1c24] px-4 rounded-xl border border-slate-200 dark:border-[#3a3a43] shadow-sm transition-colors duration-300">
         <div className="w-[36px] h-[36px] rounded-lg bg-slate-100 dark:bg-[#2c2f32] flex justify-center items-center cursor-pointer overflow-hidden transition-all">
           {hasProfile && profilePic ? (
@@ -168,7 +161,7 @@ const Navbar = () => {
           onClick={() => setToggleDrawer((prev) => !prev)}
         />
 
-        {/* MOBILE DROPDOWN DRAWER PANEL FRAME */}
+        {/* MOBILE DROPDOWN DRAWER */}
         <div className={`absolute top-[68px] right-0 left-0 bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-md z-50 shadow-2xl rounded-2xl border border-slate-200 dark:border-[#3a3a43] py-4 transition-all duration-300 origin-top ${!toggleDrawer ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
           <ul className="mb-4 space-y-1">
             {navlinks.map((link) => {
@@ -243,7 +236,7 @@ const Navbar = () => {
         onClose={() => setIsModalOpen(false)} 
       />
     </div>
-  )
-}
+  );
+};
 
 export default Navbar;

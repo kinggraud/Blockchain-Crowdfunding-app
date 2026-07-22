@@ -1,18 +1,25 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useStateContext } from "../context";
 
 const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
-  const { setUserStatus, registerUser } = useStateContext() || {};
+  const navigate = useNavigate();
+  const { 
+    setUserStatus, 
+    setAdminStatus, 
+    setRecipientStatus, 
+    registerUser 
+  } = useStateContext() || {};
   
-  // Tab/Role state: defaults to 'initialRole' if provided, otherwise 'recipient'
+  // Tab/Role state: snaps to 'initialRole' when present, defaults to 'recipient'
   const [activeRole, setActiveRole] = useState(initialRole || "recipient");
   
-  // Sync activeRole whenever initialRole changes (e.g., when opening specifically for admin)
+  // Sync activeRole whenever modal opens or initialRole changes
   useEffect(() => {
-    if (initialRole) {
-      setActiveRole(initialRole);
+    if (isOpen) {
+      setActiveRole(initialRole || "recipient");
     }
-  }, [initialRole, isOpen]);
+  }, [isOpen, initialRole]);
 
   // Admin form inputs
   const [orgName, setOrgName] = useState("");
@@ -30,7 +37,7 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
     setIsSubmitting(true);
 
     try {
-      const currentAddress = userAddress || window.ethereum?.selectedAddress || "0x_anonymous";
+      const currentAddress = userAddress || (typeof window !== 'undefined' && window.ethereum?.selectedAddress) || "0x_anonymous";
 
       const newAdminData = {
         address: currentAddress,
@@ -49,13 +56,16 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
         }
       }
 
+      // Sync across all key variations so AdminGuard/AdminProfile read it seamlessly
       localStorage.setItem(`user_status_${currentAddress}`, JSON.stringify(newAdminData));
+      localStorage.setItem(`admin_status_${currentAddress}`, JSON.stringify(newAdminData));
+      localStorage.setItem(`admin_account_${currentAddress}`, JSON.stringify(newAdminData));
 
-      if (setUserStatus) {
-        setUserStatus(newAdminData);
-      }
+      if (setUserStatus) setUserStatus(newAdminData);
+      if (setAdminStatus) setAdminStatus(newAdminData);
 
       onClose();
+      navigate("/admin-configuration");
     } catch (error) {
       console.error("Error during admin registration:", error);
       alert("Registration failed: " + error.message);
@@ -69,7 +79,7 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
     setIsSubmitting(true);
 
     try {
-      const currentAddress = userAddress || window.ethereum?.selectedAddress || "0x_anonymous";
+      const currentAddress = userAddress || (typeof window !== 'undefined' && window.ethereum?.selectedAddress) || "0x_anonymous";
 
       const newRecipientData = {
         address: currentAddress,
@@ -87,13 +97,16 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
         }
       }
 
+      // Sync across all key variations for robust state reading
       localStorage.setItem(`user_status_${currentAddress}`, JSON.stringify(newRecipientData));
+      localStorage.setItem(`recipient_status_${currentAddress}`, JSON.stringify(newRecipientData));
+      localStorage.setItem(`recipient_account_${currentAddress}`, JSON.stringify(newRecipientData));
 
-      if (setUserStatus) {
-        setUserStatus(newRecipientData);
-      }
+      if (setUserStatus) setUserStatus(newRecipientData);
+      if (setRecipientStatus) setRecipientStatus(newRecipientData);
 
       onClose();
+      navigate("/profile");
     } catch (error) {
       console.error("Error during recipient registration:", error);
       alert("Registration failed: " + error.message);
@@ -109,9 +122,10 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
-            {initialRole === "admin" ? "Register Admin Account" : "Register Account"}
+            {activeRole === "admin" ? "Register Admin Account" : "Register Recipient Account"}
           </h2>
           <button
+            type="button"
             onClick={onClose}
             className="text-slate-400 hover:text-white text-lg font-bold cursor-pointer"
           >
@@ -119,7 +133,7 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
           </button>
         </div>
 
-        {/* Role Toggle Selector - ONLY show if no specific initialRole was enforced */}
+        {/* Role Toggle Selector - ONLY show if initialRole wasn't explicitly provided */}
         {!initialRole && (
           <div className="flex bg-slate-100 dark:bg-[#2c2f36] p-1 rounded-xl mb-6">
             <button
@@ -215,7 +229,7 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
               {isSubmitting ? (
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
               ) : (
-                "Register Account"
+                "Register Recipient Account"
               )}
             </button>
           </form>

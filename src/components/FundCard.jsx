@@ -1,15 +1,19 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import { ethers } from 'ethers';
 import { tagType, thirdweb } from '../assets';
 import { daysLeft } from '../utils';
 
-// 🔍 Utility: Map the creator's currency selection directly to visual symbols
+// 🔍 Utility: Map creator currency selection directly to visual symbols
 const getCurrencySymbol = (currency) => {
-  if (!currency) return '₦'; // Default fallback symbol
+  if (!currency) return 'Ξ'; // Default fallback to ETH symbol if undefined
   
   const upperCurrency = currency.toString().toUpperCase().trim();
   
   switch (upperCurrency) {
+    case 'ETH':
+    case 'ETHEREUM':
+      return 'Ξ';
     case 'NGN':
     case 'NAIRA':
     case '0':
@@ -26,31 +30,86 @@ const getCurrencySymbol = (currency) => {
     case 'POUND':
       return '£';
     default:
-      // If a single symbol character was stored, return it; otherwise pass the code with space
       return upperCurrency.length === 1 ? upperCurrency : `${upperCurrency} `; 
   }
 };
 
-const FundCard = ({ owner, title, description, target, deadline, amountCollected, image, handleClick, pId, currency }) => {
+// 🧮 Safe formatter that converts BigNumber/Wei strings into human-readable numbers
+const parseAndFormatAmount = (value) => {
+  if (value === undefined || value === null || value === '') return '0';
+
+  try {
+    const strVal = value.toString();
+
+    // If the value is a raw Wei string (18 decimals, e.g. length > 14 or standard 1e18 range)
+    if (strVal.length > 14 && !strVal.includes('.')) {
+      const formattedEth = ethers.utils 
+        ? ethers.utils.formatEther(strVal) 
+        : ethers.formatEther(strVal);
+      
+      const parsedNum = parseFloat(formattedEth);
+      return isNaN(parsedNum) ? '0' : parsedNum.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    }
+
+    // Standard number formatting
+    const parsed = Number(strVal);
+    if (isNaN(parsed)) return '0';
+
+    return parsed.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  } catch (error) {
+    console.error("Error formatting card amount:", error);
+    return '0';
+  }
+};
+
+const FundCard = ({ 
+  owner, 
+  title, 
+  description, 
+  target, 
+  deadline, 
+  amountCollected, 
+  image, 
+  handleClick, 
+  pId, 
+  currency 
+}) => {
+
+  console.log(deadline);
+console.log(typeof deadline);
+console.log(new Date(deadline));
   const remainingDays = daysLeft(deadline);
   
-  // 🔍 Extract the chosen visual currency mapping symbol
+  // 🔍 Extract symbol and formatted values
   const currencySymbol = getCurrencySymbol(currency);
+  const formattedCollected = parseAndFormatAmount(amountCollected);
+  const formattedTarget = parseAndFormatAmount(target);
 
-  const calculateProgress = (collected, goal) => {
-    const numCollected = Number(collected) || 0;
-    const numGoal = Number(goal) || 1; // Prevent division by zero
-    const percentage = Math.round((numCollected / numGoal) * 100);
-    return percentage > 100 ? 100 : percentage;
+  // 📊 Progress Calculation Handler
+  const calculateProgress = (collectedVal, targetVal) => {
+    try {
+      // Normalize raw Wei to ETH float for calculation if needed
+      let c = collectedVal ? collectedVal.toString() : '0';
+      let t = targetVal ? targetVal.toString() : '1';
+
+      if (c.length > 14 && !c.includes('.')) {
+        c = ethers.utils ? ethers.utils.formatEther(c) : ethers.formatEther(c);
+      }
+      if (t.length > 14 && !t.includes('.')) {
+        t = ethers.utils ? ethers.utils.formatEther(t) : ethers.formatEther(t);
+      }
+
+      const numCollected = parseFloat(c) || 0;
+      const numGoal = parseFloat(t) || 1; // Prevent division by zero
+
+      const percentage = Math.round((numCollected / numGoal) * 100);
+      return percentage > 100 ? 100 : percentage;
+    } catch {
+      return 0;
+    }
   };
 
   const progress = calculateProgress(amountCollected, target);
-
-  // 🔍 Formatter to handle readable numbers like 50,000 instead of 50000
-  const formatAmount = (num) => {
-    const parsed = Number(num);
-    return isNaN(parsed) ? num : parsed.toLocaleString();
-  };
 
   return (
     <motion.div 
@@ -76,7 +135,9 @@ const FundCard = ({ owner, title, description, target, deadline, amountCollected
           <div className="p-1.5 bg-slate-100 dark:bg-[#13131a] rounded-lg">
             <img src={tagType} alt="tag" className="w-[14px] h-[14px] object-contain" />
           </div>
-          <p className="ml-[10px] font-epilogue font-medium text-[12px] text-slate-500 dark:text-[#808191]">Academic Research</p>
+          <p className="ml-[10px] font-epilogue font-medium text-[12px] text-slate-500 dark:text-[#808191]">
+            Crowdfunding Campaign
+          </p>
         </div>
 
         {/* 📝 TEXT CONTENT */}
@@ -98,26 +159,28 @@ const FundCard = ({ owner, title, description, target, deadline, amountCollected
           />
         </div>
 
-        {/* 💰 DYNAMIC FLAT CURRENCY STATS */}
+        {/* 💰 DYNAMIC STATS */}
         <div className="flex justify-between flex-wrap gap-2">
           <div className="flex flex-col">
-            {/* 🔍 Displays dynamic creator currency symbol + formatted raised amount */}
             <h4 className="font-epilogue font-bold text-[14px] text-slate-700 dark:text-[#b2b3bd] leading-[22px]">
-              {currencySymbol}{formatAmount(amountCollected)}
+              {currencySymbol}{formattedCollected}
             </h4>
             <p className="mt-[2px] font-epilogue font-normal text-[11px] leading-[18px] text-slate-500 dark:text-[#808191] uppercase tracking-wider">
-              Raised of {currencySymbol}{formatAmount(target)}
+              Raised of {currencySymbol}{formattedTarget}
             </p>
           </div>
 
           <div className="flex flex-col items-end">
-            <h4 className="font-epilogue font-bold text-[14px] text-slate-700 dark:text-[#b2b3bd] leading-[22px]">
-              {remainingDays > 0 ? remainingDays : 'Ended'}
-            </h4>
+          <h4 className="font-epilogue font-bold text-[14px] text-slate-700 dark:text-[#b2b3bd] leading-[22px]">
+            {remainingDays > 0 ? remainingDays : 'Ended'}
+          </h4>
+
+          {remainingDays > 0 && (
             <p className="mt-[2px] font-epilogue font-normal text-[11px] leading-[18px] text-slate-500 dark:text-[#808191] uppercase tracking-wider text-right">
               {remainingDays === 1 ? 'Day Left' : 'Days Left'}
             </p>
-          </div>
+          )}
+        </div>
         </div>
 
         {/* 👤 OWNER SECTION */}
@@ -132,6 +195,6 @@ const FundCard = ({ owner, title, description, target, deadline, amountCollected
       </div>
     </motion.div>
   );
-}
+};
 
 export default FundCard;

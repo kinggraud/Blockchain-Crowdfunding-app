@@ -110,7 +110,23 @@ const currentUnixTime = Math.floor(Date.now() / 1000);
                 </div>
 
                 <button
-                  onClick={() => navigate('/create-campaign', { state: { targetAdminEnv: env } })}
+                  onClick={() => {
+                    // 🔍 Debug log to inspect the object structure in developer console
+                    console.log("Selected Environment Object:", env);
+                    
+                    // Support various ID key names (id, _id, or environmentId)
+                    const selectedEnvId = env.id || env._id || env.environmentId;
+                    
+                    if (!selectedEnvId) {
+                      console.error("Environment object is missing a valid ID field!", env);
+                      alert("Error: Active environment lacks a valid ID.");
+                      return;
+                    }
+
+                    navigate(`/create-campaign?envId=${selectedEnvId}`, { 
+                      state: { environment: env } 
+                    });
+                  }}
                   className="mt-6 w-full py-3 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-xs transition-all cursor-pointer shadow-md"
                 >
                   🚀 Start Campaign Under This Environment

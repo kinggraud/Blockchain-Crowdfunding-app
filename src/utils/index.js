@@ -1,8 +1,23 @@
 export const daysLeft = (deadline) => {
-  const difference = new Date(deadline).getTime() - Date.now();
-  const remainingDays = difference / (1000 * 3600 * 24);
+  if (!deadline) return 0;
 
-  return remainingDays.toFixed(0);
+  let deadlineTime = Number(deadline);
+
+  // If the timestamp is in seconds, convert it to milliseconds.
+  // Unix timestamps in milliseconds are always 13 digits.
+  if (deadlineTime < 1000000000000) {
+    deadlineTime *= 1000;
+  }
+
+  const difference = deadlineTime - Date.now();
+
+  // Campaign has ended
+  if (difference <= 0) {
+    return 0;
+  }
+
+  // Calculate remaining days (rounds up so part of a day counts as 1 day)
+  return Math.ceil(difference / (1000 * 60 * 60 * 24));
 };
 
 export const calculateBarPercentage = (goal, raisedAmount) => {
