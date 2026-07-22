@@ -33,9 +33,9 @@ const App = () => {
     );
   }
 
-  // 2️⃣ STANDALONE LANDING PAGE ROUTE
+  // 2️⃣ STANDALONE LANDING PAGE ROUTE (Applies to both '/' and '/landing')
   // Renders pure LandingPage without Sidebar, Navbar, or Dashboard wrappers
-  if (location.pathname === '/landing') {
+  if (location.pathname === '/' || location.pathname === '/landing') {
     return (
       <>
         <LandingPage />
@@ -67,8 +67,7 @@ const App = () => {
           
           <Routes> 
             {/* Main App Dashboard */}
-            <Route path="/" element={<Home />} />
-            <Route path="/home" element={<Navigate to="/" replace />} />
+            <Route path="/home" element={<Home />} />
             
             {/* Recipient Profile & Campaign Actions */}
             <Route path="/profile" element={<Profile />} />
@@ -84,7 +83,7 @@ const App = () => {
             <Route path="/admin" element={<Navigate to="/admin-configuration" replace />} />
             <Route path="/admin-profile" element={<Navigate to="/admin-configuration" replace />} />
 
-            {/* Catch-all Fallback */}
+            {/* Catch-all Fallback -> Redirects back to Landing Page */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
