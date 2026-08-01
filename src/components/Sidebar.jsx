@@ -83,7 +83,7 @@ const Sidebar = () => {
   const getActiveLink = () => {
     const path = location.pathname;
     
-    if (path === '/') return 'dashboard';
+    if (path === '/home') return 'dashboard';
     if (path === '/create-campaign') return 'campaign';
     if (path === '/profile') return 'profile'; 
     if (path === '/logout') return 'logout';

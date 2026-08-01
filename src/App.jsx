@@ -76,12 +76,33 @@ const App = () => {
             <Route path="/help" element={<HelpCenter />} />
             <Route path="/logout" element={<Logout />} />
 
-            {/* Admin Configuration Route */}
-            <Route path="/admin-configuration" element={<AdminProfile />} />
+            {/* Admin Configuration Route (Protected via AdminGuard) */}
+            <Route 
+              path="/admin-configuration" 
+              element={
+                <AdminGuard>
+                  <AdminProfile />
+                </AdminGuard>
+              } 
+            />
             
-            {/* Alias Directs */}
-            <Route path="/admin" element={<Navigate to="/admin-configuration" replace />} />
-            <Route path="/admin-profile" element={<Navigate to="/admin-configuration" replace />} />
+            {/* Protected Alias Directs */}
+            <Route 
+              path="/admin" 
+              element={
+                <AdminGuard>
+                  <Navigate to="/admin-configuration" replace />
+                </AdminGuard>
+              } 
+            />
+            <Route 
+              path="/admin-profile" 
+              element={
+                <AdminGuard>
+                  <Navigate to="/admin-configuration" replace />
+                </AdminGuard>
+              } 
+            />
 
             {/* Catch-all Fallback -> Redirects back to Landing Page */}
             <Route path="*" element={<Navigate to="/" replace />} />

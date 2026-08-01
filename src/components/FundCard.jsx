@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { ethers } from 'ethers';
 import { tagType, thirdweb } from '../assets';
 import { daysLeft } from '../utils';
+import { convertFromEth } from '../utils/cryptoUtils';
 
 // 🔍 Utility: Map creator currency selection directly to visual symbols
 const getCurrencySymbol = (currency) => {
@@ -76,14 +77,26 @@ const FundCard = ({
 }) => {
 
   console.log(deadline);
-console.log(typeof deadline);
-console.log(new Date(deadline));
+  console.log(typeof deadline);
+  console.log(new Date(deadline));
   const remainingDays = daysLeft(deadline);
   
   // 🔍 Extract symbol and formatted values
   const currencySymbol = getCurrencySymbol(currency);
-  const formattedCollected = parseAndFormatAmount(amountCollected);
-  const formattedTarget = parseAndFormatAmount(target);
+ // First convert Wei -> ETH
+  const rawCollected = parseAndFormatAmount(amountCollected);
+  const rawTarget = parseAndFormatAmount(target);
+
+  // Then convert ETH -> selected currency
+  const formattedCollected =
+    currency && currency !== "ETH"
+      ? convertFromEth(rawCollected, currency)
+      : rawCollected;
+
+  const formattedTarget =
+    currency && currency !== "ETH"
+      ? convertFromEth(rawTarget, currency)
+      : rawTarget;
 
   // 📊 Progress Calculation Handler
   const calculateProgress = (collectedVal, targetVal) => {

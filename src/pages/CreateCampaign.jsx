@@ -48,35 +48,31 @@ const CreateCampaign = () => {
     image: ''
   });
 
-  // Fetch real-time exchange data & load environment context on mount
- // Fetch real-time exchange data & load environment context on mount
-  // 📍 Inside CreateCampaign.jsx
+  useEffect(() => {
+    const initLiveRates = async () => {
+      if (fetchLiveRates) await fetchLiveRates();
+    };
+    initLiveRates();
 
-    useEffect(() => {
-      const initLiveRates = async () => {
-        if (fetchLiveRates) await fetchLiveRates();
-      };
-      initLiveRates();
+    // 1. Get the envId strictly from the current URL search query
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentEnvId = urlParams.get('envId');
 
-      // 1. Get the envId strictly from the current URL search query
-      const urlParams = new URLSearchParams(window.location.search);
-      const currentEnvId = urlParams.get('envId');
-
-      // 2. ONLY set an environment IF 'envId' is explicitly present in the URL query
-      if (currentEnvId) {
-        if (location.state?.environment) {
-          setActiveEnvironment(location.state.environment);
-        } else {
-          const storedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
-          const matchedEnv = storedEnvs.find((e) => String(e.id) === String(currentEnvId));
-          setActiveEnvironment(matchedEnv || null);
-        }
+    // 2. ONLY set an environment IF 'envId' is explicitly present in the URL query
+    if (currentEnvId) {
+      if (location.state?.environment) {
+        setActiveEnvironment(location.state.environment);
       } else {
-        // 🛑 STRICT RESET: If there's no ?envId= in the URL, force Generic/Normal mode!
-        setActiveEnvironment(null);
-        setCustomResponses({});
+        const storedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
+        const matchedEnv = storedEnvs.find((e) => String(e.id) === String(currentEnvId));
+        setActiveEnvironment(matchedEnv || null);
       }
-    }, [location.search, location.pathname]); // Re-run whenever route path or URL search params change
+    } else {
+      // 🛑 STRICT RESET: If there's no ?envId= in the URL, force Generic/Normal mode!
+      setActiveEnvironment(null);
+      setCustomResponses({});
+    }
+  }, [location.search, location.pathname]);
 
   const handleChange = (field, e) => {
     setForm({ ...form, [field]: e.target.value });
@@ -117,7 +113,7 @@ const CreateCampaign = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // 1. Check wallet
+    // 1. Check wallet connection
     const currentAddress = address || (typeof window !== 'undefined' && window.ethereum?.selectedAddress);
     if (!currentAddress) {
       alert("Please connect your wallet first!");
@@ -130,11 +126,10 @@ const CreateCampaign = () => {
       return alert("Target goal amount must be greater than 0");
     }
 
-    // 3. 🎯 SAFE DEADLINE CONVERSION: Set time to end of day (23:59:59) in local time
+    // 3. SAFE DEADLINE CONVERSION: Set time to end of day (23:59:59) in local time
     if (!form.deadline) return alert("Please select a valid deadline date.");
     
     const [year, month, day] = form.deadline.split('-').map(Number);
-    // Month is 0-indexed in JS Date (0 = Jan, 11 = Dec)
     const deadlineDate = new Date(year, month - 1, day, 23, 59, 59);
     const deadlineInSeconds = Math.floor(deadlineDate.getTime() / 1000);
     const currentUnixTime = Math.floor(Date.now() / 1000);
@@ -152,14 +147,13 @@ const CreateCampaign = () => {
       setIsFormLoading(true);
 
       try {
-        // 4. Safe Wei Target Conversion with floating-point string precision
+        // Safe Wei Target Conversion with floating-point string precision
         const cleanTargetStr = String(form.target);
         
         const parseEthToWei = (ethStr) => {
           const num = parseFloat(ethStr);
           if (isNaN(num) || num <= 0) return '0';
           
-          // Format to safe fixed representation up to 18 decimals
           const fixedEthStr = num.toFixed(18).replace(/\.?0+$/, '');
           
           if (ethers.utils && ethers.utils.parseUnits) {
@@ -173,33 +167,54 @@ const CreateCampaign = () => {
 
         const weiTargetStr = parseEthToWei(cleanTargetStr);
 
-        console.log("🚀 Submitting Campaign On-Chain:", {
-          owner: currentAddress,
-          title: form.title,
-          targetWei: weiTargetStr,
-          rawEthTarget: form.target,
-          currency: currency,
-          deadlineUnix: deadlineInSeconds,
-          image: form.image,
-          environmentId: activeEnvironment?.id || null,
-          customResponses
-        });
+        // 📋 CASE A: SUBMISSION INSIDE AN ADMIN ENVIRONMENT -> QUEUE FOR APPROVAL
+        if (activeEnvironment) {
+          const pendingSubmission = {
+            id: `pending_${Date.now()}`,
+            envId: activeEnvironment.id,
+            envTitle: activeEnvironment.title,
+            adminAddress: activeEnvironment.adminAddress?.toLowerCase() || '',
+            recipientAddress: currentAddress.toLowerCase(),
+            formValues: {
+              ...form,
+              targetWei: weiTargetStr,
+              rawEthTarget: form.target,
+              displayTarget: displayTarget,
+              currency: currency,
+              deadlineUnix: deadlineInSeconds,
+              customResponses: customResponses
+            },
+            status: 'pending', // 'pending' | 'approved' | 'rejected' | 'deployed'
+            createdAt: new Date().toISOString()
+          };
 
-        // 5. Call Smart Contract / State context
+          // Save submission to pending queue storage
+          const existingQueue = JSON.parse(localStorage.getItem('pending_campaign_submissions') || '[]');
+          localStorage.setItem(
+            'pending_campaign_submissions', 
+            JSON.stringify([...existingQueue, pendingSubmission])
+          );
+
+          alert("🚀 Campaign submitted for admin approval! You will be prompted to launch on-chain once verified.");
+          navigate('/home');
+          return;
+        }
+
+        // 🌐 CASE B: REGULAR CAMPAIGN CREATION -> DIRECT METAMASK ON-CHAIN TRANSACTION
         if (createCampaign) {
           await createCampaign({
             ...form,
             target: weiTargetStr,
             deadline: deadlineInSeconds,
             currency: currency,
-            environmentId: activeEnvironment?.id || null,
+            environmentId: null,
             verificationData: customResponses
           });
           alert("Campaign created successfully!");
-          navigate('/');
+          navigate('/home');
         }
       } catch (error) {
-        console.error("Contract Call Error:", error);
+        console.error("Campaign Creation Error:", error);
         alert(`Transaction failed: ${error.reason || error.message || "Execution reverted"}`);
       } finally {
         setIsFormLoading(false);
@@ -224,10 +239,14 @@ const CreateCampaign = () => {
           <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
             Launch Your <span className="text-[#8c6dfd]">Campaign</span>
           </h1>
-          <p className="text-slate-500 dark:text-gray-400 mt-2">Fill in the details below to deploy your campaign to the blockchain.</p>
+          <p className="text-slate-500 dark:text-gray-400 mt-2">
+            {activeEnvironment 
+              ? "Submit campaign details for Admin verification." 
+              : "Fill in the details below to deploy your campaign to the blockchain."}
+          </p>
         </div>
 
-        {/* 🏢 ACTIVE ENVIRONMENT BANNER (If Selected via Admin Hub) */}
+        {/* 🏢 ACTIVE ENVIRONMENT BANNER */}
         {activeEnvironment && (
           <div className="w-full p-5 bg-[#8c6dfd]/10 border border-[#8c6dfd]/30 rounded-2xl mb-8 flex flex-col gap-1">
             <div className="flex items-center justify-between">
@@ -263,7 +282,7 @@ const CreateCampaign = () => {
             />
             <FormField
               labelName="Campaign Title *"
-              placeholder="Give your project a catchy name"
+              placeholder="Give your campaign a catchy name"
               inputType="text"
               value={form.title}
               handleChange={(e) => handleChange('title', e)}
@@ -331,13 +350,13 @@ const CreateCampaign = () => {
 
           <FormField
             labelName="Featured Image URL *"
-            placeholder="Link to your project cover photo"
+            placeholder="Link to your campaign cover photo"
             inputType="url"
             value={form.image}
             handleChange={(e) => handleChange('image', e)}
           />
 
-          {/* 📋 DYNAMIC CUSTOM QUESTIONS SECTION (Rendered if configured by Admin) */}
+          {/* 📋 DYNAMIC CUSTOM QUESTIONS SECTION */}
           {activeEnvironment?.customQuestions && activeEnvironment.customQuestions.length > 0 && (
             <div className="w-full p-6 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-2xl flex flex-col gap-6">
               <h3 className="text-sm font-bold uppercase tracking-wider text-[#8c6dfd]">
@@ -384,16 +403,17 @@ const CreateCampaign = () => {
           <div className="flex flex-col items-center mt-6">
             <CustomButton
               btnType="submit"
-              title={isFormLoading ? "Deploying to Blockchain..." : "🚀 Deploy Campaign"}
+              title={
+                isFormLoading 
+                  ? "Processing..." 
+                  : activeEnvironment 
+                  ? "📋 Submit for Admin Approval" 
+                  : "🚀 Deploy Campaign"
+              }
               styles={`w-full sm:w-auto px-12 py-4 text-lg font-bold rounded-2xl transition-all cursor-pointer ${
                 isFormLoading ? 'bg-gray-600' : 'bg-[#1dc071] hover:bg-[#17a360]'
               }`}
             />
-            {isFormLoading && (
-              <p className="mt-4 text-[#4acd8d] animate-pulse font-medium italic">
-                Wait for MetaMask to confirm the transaction...
-              </p>
-            )}
           </div>
         </form>
       </motion.div>

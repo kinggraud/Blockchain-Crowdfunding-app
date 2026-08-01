@@ -5,7 +5,7 @@ import { useStateContext } from '../context';
 
 const AdminProfile = () => {
   const navigate = useNavigate();
-  const { address, adminStatus, userStatus, setAdminStatus, createCampaign } = useStateContext();
+  const { address, adminStatus, userStatus, setAdminStatus, createCampaign } = useStateContext() || {};
   
   // Dynamic lookup for active admin info
   const currentAdmin = adminStatus || userStatus;
@@ -34,7 +34,7 @@ const AdminProfile = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [deployingId, setDeployingId] = useState(null);
 
-  // Load environments & submissions on mount
+  // Load environments & submissions on mount or address/admin updates
   useEffect(() => {
     if (!address) {
       setIsRegisteredAdmin(false);
@@ -65,10 +65,15 @@ const AdminProfile = () => {
       : existingEnvs;
     setEnvironments(filteredEnvs);
 
-    // Load Pending Submissions for this admin's environments
+    // Load Pending Submissions aligned with CreateCampaign schema
     const allSubmissions = JSON.parse(localStorage.getItem("pending_campaign_submissions") || "[]");
-    const adminEnvIds = filteredEnvs.map(e => e.id);
-    const relevantSubmissions = allSubmissions.filter(sub => adminEnvIds.includes(sub.environmentId));
+    const adminEnvIds = filteredEnvs.map(e => String(e.id));
+    
+    // Filter matching environment ID or admin address
+    const relevantSubmissions = allSubmissions.filter(sub => 
+      adminEnvIds.includes(String(sub.envId)) || 
+      (sub.adminAddress && sub.adminAddress.toLowerCase() === address?.toLowerCase())
+    );
     setPendingCampaigns(relevantSubmissions);
   };
 
@@ -130,7 +135,7 @@ const AdminProfile = () => {
 
     const newEnvironment = {
       id: `env_${Date.now()}`,
-      adminAddress: currentAddress,
+      adminAddress: currentAddress.toLowerCase(),
       title: envName,
       domain: currentAdmin?.domain || "General Academic",
       organization: currentAdmin?.organization || "Academic Institution",
@@ -167,19 +172,29 @@ const AdminProfile = () => {
       return;
     }
 
-    setDeployingId(submission.submissionId);
+    const submissionId = submission.id || submission.submissionId;
+    setDeployingId(submissionId);
 
     try {
-      // Execute Blockchain Transaction
+      const form = submission.formValues || submission.formData || {};
+
+      // Execute Smart Contract Transaction with complete metadata
       await createCampaign({
-        ...submission.formData,
-        target: submission.formData.targetWei, // Uses exact Wei target string
-        deadline: submission.formData.deadlineUnix
+        name: form.name,
+        title: form.title,
+        description: form.description,
+        target: form.targetWei || form.target, 
+        deadline: form.deadlineUnix || form.deadline,
+        image: form.image,
+        currency: form.currency || 'USD',
+        recipient: submission.recipientAddress || form.recipientAddress
       });
 
-      // Remove from pending list on success
+      // Remove approved item from storage queue
       const allSubmissions = JSON.parse(localStorage.getItem("pending_campaign_submissions") || "[]");
-      const updatedSubmissions = allSubmissions.filter(s => s.submissionId !== submission.submissionId);
+      const updatedSubmissions = allSubmissions.filter(
+        s => (s.id || s.submissionId) !== submissionId
+      );
       localStorage.setItem("pending_campaign_submissions", JSON.stringify(updatedSubmissions));
 
       alert("🎉 Campaign Approved & Successfully Deployed to Blockchain!");
@@ -192,10 +207,10 @@ const AdminProfile = () => {
     }
   };
 
-  const handleRejectSubmission = (submissionId) => {
+  const handleRejectSubmission = (targetId) => {
     if (!window.confirm("Are you sure you want to reject and remove this submission?")) return;
     const allSubmissions = JSON.parse(localStorage.getItem("pending_campaign_submissions") || "[]");
-    const updated = allSubmissions.filter(s => s.submissionId !== submissionId);
+    const updated = allSubmissions.filter(s => (s.id || s.submissionId) !== targetId);
     localStorage.setItem("pending_campaign_submissions", JSON.stringify(updated));
     loadEnvironmentsAndSubmissions();
   };
@@ -226,7 +241,7 @@ const AdminProfile = () => {
             <input 
               type="text" 
               required
-              placeholder="e.g. Department of Computer Engineering"
+              placeholder="e.g. Department of Computer Science"
               className="w-full px-4 py-3 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-xl text-slate-900 dark:text-white text-sm outline-none focus:border-[#8c6dfd]"
               value={regName}
               onChange={(e) => setRegName(e.target.value)}
@@ -379,55 +394,68 @@ const AdminProfile = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {pendingCampaigns.map((sub) => (
-              <div key={sub.submissionId} className="p-6 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-2xl flex flex-col gap-4">
-                <div className="flex flex-col sm:flex-row justify-between items-start gap-2">
-                  <div>
-                    <span className="text-[10px] font-bold px-2.5 py-1 bg-amber-500/10 text-amber-500 rounded-lg uppercase tracking-wider">
-                      Pending Admin Approval
-                    </span>
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-2">{sub.formData.title}</h3>
-                    <p className="text-xs text-slate-500 dark:text-gray-400">By: {sub.formData.name} ({sub.applicantAddress})</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-sm font-extrabold text-[#1dc071]">{sub.formData.displayTarget} {sub.formData.currency}</span>
-                    <p className="text-[10px] text-slate-400">Submitted: {new Date(sub.submittedAt).toLocaleDateString()}</p>
-                  </div>
-                </div>
+            {pendingCampaigns.map((sub) => {
+              const subId = sub.id || sub.submissionId;
+              const formData = sub.formValues || sub.formData || {};
+              const verificationAnswers = formData.customResponses || sub.verificationAnswers || {};
+              const applicantAddress = sub.recipientAddress || sub.applicantAddress || '0x...';
 
-                <div className="p-4 bg-white dark:bg-[#1c1c24] rounded-xl border border-slate-200 dark:border-[#282830]">
-                  <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mb-3">{sub.formData.description}</p>
-                  
-                  {/* DISPLAY DYNAMIC ANSWERS */}
-                  {sub.verificationAnswers && Object.keys(sub.verificationAnswers).length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-white/5 space-y-1.5">
-                      <p className="text-[11px] font-bold uppercase text-[#8c6dfd]">Verification Question Responses:</p>
-                      {Object.entries(sub.verificationAnswers).map(([label, val]) => (
-                        <p key={label} className="text-xs text-slate-500 dark:text-slate-400">
-                          <strong className="text-slate-700 dark:text-slate-200">{label}:</strong> {String(val)}
-                        </p>
-                      ))}
+              return (
+                <div key={subId} className="p-6 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-2xl flex flex-col gap-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start gap-2">
+                    <div>
+                      <span className="text-[10px] font-bold px-2.5 py-1 bg-amber-500/10 text-amber-500 rounded-lg uppercase tracking-wider">
+                        Pending Admin Approval
+                      </span>
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-2">{formData.title}</h3>
+                      <p className="text-xs text-slate-500 dark:text-gray-400">
+                        By: {formData.name} ({applicantAddress.slice(0, 6)}...{applicantAddress.slice(-4)})
+                      </p>
                     </div>
-                  )}
-                </div>
+                    <div className="text-right">
+                      <span className="text-sm font-extrabold text-[#1dc071]">
+                        {formData.displayTarget || formData.target} {formData.currency || 'ETH'}
+                      </span>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Submitted: {sub.createdAt ? new Date(sub.createdAt).toLocaleDateString() : 'Recently'}
+                      </p>
+                    </div>
+                  </div>
 
-                <div className="flex justify-end gap-3">
-                  <button 
-                    onClick={() => handleRejectSubmission(sub.submissionId)}
-                    className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-xl text-xs transition-all"
-                  >
-                    Reject Submission
-                  </button>
-                  <button 
-                    onClick={() => handleApproveAndDeploy(sub)}
-                    disabled={deployingId === sub.submissionId}
-                    className="px-5 py-2 bg-[#1dc071] hover:bg-[#17a360] text-white font-bold rounded-xl text-xs transition-all shadow-md disabled:opacity-50"
-                  >
-                    {deployingId === sub.submissionId ? "Deploying On-Chain..." : "✅ Approve & Deploy On-Chain"}
-                  </button>
+                  <div className="p-4 bg-white dark:bg-[#1c1c24] rounded-xl border border-slate-200 dark:border-[#282830]">
+                    <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mb-3">{formData.description}</p>
+                    
+                    {/* DISPLAY DYNAMIC ANSWERS */}
+                    {verificationAnswers && Object.keys(verificationAnswers).length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 dark:border-white/5 space-y-1.5">
+                        <p className="text-[11px] font-bold uppercase text-[#8c6dfd]">Verification Question Responses:</p>
+                        {Object.entries(verificationAnswers).map(([label, val]) => (
+                          <p key={label} className="text-xs text-slate-500 dark:text-slate-400">
+                            <strong className="text-slate-700 dark:text-slate-200">{label}:</strong> {String(val)}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end gap-3">
+                    <button 
+                      onClick={() => handleRejectSubmission(subId)}
+                      className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-xl text-xs transition-all cursor-pointer"
+                    >
+                      Reject Submission
+                    </button>
+                    <button 
+                      onClick={() => handleApproveAndDeploy(sub)}
+                      disabled={deployingId === subId}
+                      className="px-5 py-2 bg-[#1dc071] hover:bg-[#17a360] text-white font-bold rounded-xl text-xs transition-all shadow-md disabled:opacity-50 cursor-pointer"
+                    >
+                      {deployingId === subId ? "Deploying On-Chain..." : "✅ Approve & Deploy On-Chain"}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
