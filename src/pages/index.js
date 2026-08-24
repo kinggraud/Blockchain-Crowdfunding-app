@@ -5,3 +5,4 @@ export { default as CampaignDetails } from './CampaignDetails';
 export { default as HelpCenter } from './HelpCenter';
 export { default as Logout } from './Logout';
 export { default as AdminProfile } from './AdminProfile';
+export { default as ActiveCampaigns } from './ActiveCampaigns';

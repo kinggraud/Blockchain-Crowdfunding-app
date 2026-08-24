@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter as Router } from 'react-router-dom';
-import { ThirdwebProvider, metamaskWallet } from '@thirdweb-dev/react';
+import { ThirdwebProvider, embeddedWallet, smartWallet, metamaskWallet } from '@thirdweb-dev/react';
 import { StateContextProvider } from './context';
 import { Sepolia } from '@thirdweb-dev/chains';
 import ScrollToTop from './utils/ScrollToTop';
@@ -16,7 +16,14 @@ root.render(
   activeChain={Sepolia}
   supportedChains={[Sepolia]}
   clientId="2446c2c49acf821609d20f92435a8c7f"
-  supportedWallets={[metamaskWallet()]}
+  supportedWallets={[
+    embeddedWallet({
+          auth: {
+            options: ["email", "google", "apple", "passkey"],
+          },
+        }),
+    metamaskWallet(),
+]}
   // 🚨 ADD THESE THREE LINES TO KILL AUTO-CONNECTION
   autoConnect={false}
   dAppMeta={{

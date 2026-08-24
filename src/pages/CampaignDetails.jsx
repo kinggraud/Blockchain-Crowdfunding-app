@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
+import { useAddress, useConnect, embeddedWallet, ConnectEmbed } from '@thirdweb-dev/react';
+
 import { useStateContext } from '../context';
 import { CustomButton, Loader } from '../components';
 import { calculateBarPercentage, daysLeft } from '../utils';
@@ -12,12 +14,16 @@ import { fetchLiveRates, convertFromEth, convertToEth, CURRENCY_SYMBOLS } from '
 const CampaignDetails = () => {
   const { state } = useLocation();
   const navigate = useNavigate();
-  const { donate, getDonations, contract, address, claimRefund, withdrawFunds } = useStateContext();
+  const address = useAddress();
+  const connect = useConnect();
+
+  const { donate, getDonations, contract, claimRefund, withdrawFunds } = useStateContext();
 
   const [isLoading, setIsLoading] = useState(false);
   const [displayAmount, setDisplayAmount] = useState(''); // Stores what the user types in local fiat currency
   const [donors, setDonors] = useState([]);
   const [ratesLoaded, setRatesLoaded] = useState(false);
+  const [payWithCard, setPayWithCard] = useState(false); // Toggle for card checkout mode
 
   // Fallback to USD layout configuration if state object doesn't supply an explicit metric choice
   const campaignCurrency = state?.currency || 'USD';
@@ -42,7 +48,7 @@ const CampaignDetails = () => {
     try {
       const strVal = value.toString();
       
-      // If it's a massive BigNumber or a raw Wei string representation (long string without a dot)
+      // If it's a massive BigNumber or a raw Wei string representation
       if (!strVal.includes('.')) {
         return ethers.utils.formatEther(strVal);
       }
@@ -80,6 +86,22 @@ const CampaignDetails = () => {
     if (contract) fetchDonors();
   }, [contract, address]);
 
+  // Handle Wallet Connection / Embedded Wallet Provisioning
+  const ensureWalletConnected = async () => {
+    if (!address) {
+      try {
+        const config = embeddedWallet();
+        await connect(config);
+        return true;
+      } catch (err) {
+        console.error("Wallet connection/creation failed:", err);
+        alert("Wallet login or creation was cancelled.");
+        return false;
+      }
+    }
+    return true;
+  };
+
   const handleDonate = async () => {
     // 🛑 Block funding attempt if deadline has passed
     if (isCampaignEnded) {
@@ -87,7 +109,11 @@ const CampaignDetails = () => {
     }
 
     if (!displayAmount || parseFloat(displayAmount) <= 0) return alert("Enter a valid amount");
-    
+
+    // Auto-create / verify embedded wallet before triggering transaction
+    const isConnected = await ensureWalletConnected();
+    if (!isConnected) return;
+
     // Automatically convert current fiat input value down into real-time ETH representation string
     const ethEquivalentToSend = convertToEth(displayAmount, campaignCurrency);
 
@@ -102,20 +128,12 @@ const CampaignDetails = () => {
       setIsLoading(false);
     }
   };
-  console.log("Attempting refund for campaign index:", state.pId);
-  const checkOnChainStatus = () => {
-  const currentUnix = Math.floor(Date.now() / 1000);
-  console.log("--- DEADLINE VERIFICATION ---");
-  console.log("Current Browser Unix Time:", currentUnix);
-  console.log("Contract Campaign Deadline:", state.deadline);
-  console.log("Has On-Chain Deadline Passed?:", currentUnix >= state.deadline);
-};
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0f0f12] transition-colors duration-300">
-      {isLoading && <Loader />}
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0f0f12] transition-colors duration-300 pb-16">
+      {isLoading && <Loader message="Processing smart contract transaction..." />}
 
-      <div className="w-full flex md:flex-row flex-col mt-10 gap-[30px]">
+      <div className="w-full flex md:flex-row flex-col mt-10 gap-[30px] max-w-[1280px] mx-auto px-4">
         {/* LEFT SIDE: Image and Content */}
         <div className="flex-1 flex-col">
           <img src={state?.image} alt="campaign" className="w-full h-[410px] object-cover rounded-3xl shadow-2xl"/>
@@ -134,7 +152,7 @@ const CampaignDetails = () => {
               </div>
               <div className="ml-4">
                 <h4 className="font-bold text-[18px] text-slate-900 dark:text-white break-all">{state?.owner}</h4>
-                <p className="text-slate-500 dark:text-[#808191]">Verified Academic Researcher</p>
+                <p className="text-slate-500 dark:text-[#808191] text-xs">Verified Campaign Creator</p>
               </div>
             </div>
 
@@ -142,6 +160,27 @@ const CampaignDetails = () => {
               <h4 className="font-bold text-[18px] text-slate-900 dark:text-white uppercase">Campaign Story</h4>
               <div className="mt-[20px]">
                 <p className="text-slate-600 dark:text-[#808191] leading-[26px] text-justify">{state?.description}</p>
+              </div>
+            </div>
+
+            {/* Donors History */}
+            <div>
+              <h4 className="font-bold text-[18px] text-slate-900 dark:text-white uppercase">Recent Backers ({donors.length})</h4>
+              <div className="mt-[20px] flex flex-col gap-4 max-h-[300px] overflow-y-auto">
+                {donors.length > 0 ? (
+                  donors.map((item, index) => (
+                    <div key={`${item.donor}-${index}`} className="flex justify-between items-center bg-white dark:bg-[#1c1c24] p-3 rounded-xl border border-slate-200 dark:border-[#3a3a43]">
+                      <span className="text-xs font-mono text-slate-500 dark:text-slate-400 truncate max-w-[200px]">
+                        {item.donor}
+                      </span>
+                      <span className="text-xs font-bold text-[#1dc071]">
+                        {item.donation} ETH
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400 italic">No backers yet. Be the first to fund!</p>
+                )}
               </div>
             </div>
           </div>
@@ -173,47 +212,126 @@ const CampaignDetails = () => {
               </div>
             </div>
 
-            {/* Captures local pricing natively */}
-            <div className="relative flex items-center">
-              <span className="absolute left-4 font-bold text-slate-400 text-[18px]">{symbol}</span>
-              <input 
-                type="number"
-                disabled={isCampaignEnded}
-                placeholder={`0.00 (${campaignCurrency})`}
-                step="any"
-                className={`w-full py-[10px] pl-10 pr-[15px] outline-none border-[1px] border-slate-200 dark:border-[#3a3a43] bg-transparent text-slate-900 dark:text-white text-[18px] leading-[30px] rounded-[10px] transition-all ${
-                  isCampaignEnded 
-                    ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800' 
-                    : 'focus:border-[#8c6dfd] placeholder:text-slate-400 dark:placeholder:text-[#4b5264]'
-                }`}
-                value={displayAmount}
-                onChange={(e) => setDisplayAmount(e.target.value)}
-              />
-            </div>
-
-            {displayAmount && !isCampaignEnded && (
-              <p className="text-right text-xs text-slate-400 italic mt-2">
-                ⚡ Payload output: ~ {convertToEth(displayAmount, campaignCurrency)} ETH
-              </p>
+            {/* PAYMENT MODE TOGGLE (Direct Crypto vs Thirdweb Card / Bank On-Ramp) */}
+            {!isCampaignEnded && (
+              <div className="flex gap-2 mb-4 bg-slate-100 dark:bg-[#2c2f36] p-1 rounded-xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setPayWithCard(false)}
+                  className={`flex-1 py-2 rounded-lg transition-all ${!payWithCard ? 'bg-[#8c6dfd] text-white shadow' : 'text-slate-500'}`}
+                >
+                  ⚡ Direct / Auto-Wallet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPayWithCard(true)}
+                  className={`flex-1 py-2 rounded-lg transition-all ${payWithCard ? 'bg-[#8c6dfd] text-white shadow' : 'text-slate-500'}`}
+                >
+                  💳 Card / Bank Transfer (Thirdweb Pay)
+                </button>
+              </div>
             )}
 
-            <button
-              type="button"
-              disabled={isCampaignEnded}
-              className={`w-full py-4 mt-6 rounded-xl font-bold text-white transition-all ${
-                isCampaignEnded
-                  ? 'bg-slate-400 dark:bg-slate-700 cursor-not-allowed opacity-70'
-                  : 'bg-[#8c6dfd] hover:bg-[#7a59e6]'
-              }`}
-              onClick={handleDonate}
-            >
-              {isCampaignEnded ? 'Campaign Ended' : `Fund Campaign (${symbol}${displayAmount || '0'})`}
-            </button>
+            {!payWithCard ? (
+              <>
+                {/* Captures local pricing natively */}
+                <div className="relative flex items-center">
+                  <span className="absolute left-4 font-bold text-slate-400 text-[18px]">{symbol}</span>
+                  <input 
+                    type="number"
+                    disabled={isCampaignEnded}
+                    placeholder={`0.00 (${campaignCurrency})`}
+                    step="any"
+                    className={`w-full py-[10px] pl-10 pr-[15px] outline-none border-[1px] border-slate-200 dark:border-[#3a3a43] bg-transparent text-slate-900 dark:text-white text-[18px] leading-[30px] rounded-[10px] transition-all ${
+                      isCampaignEnded 
+                        ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800' 
+                        : 'focus:border-[#8c6dfd] placeholder:text-slate-400 dark:placeholder:text-[#4b5264]'
+                    }`}
+                    value={displayAmount}
+                    onChange={(e) => setDisplayAmount(e.target.value)}
+                  />
+                </div>
+
+                {displayAmount && !isCampaignEnded && (
+                  <p className="text-right text-xs text-slate-400 italic mt-2">
+                    ⚡ Payload output: ~ {convertToEth(displayAmount, campaignCurrency)} ETH
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  disabled={isCampaignEnded}
+                  className={`w-full py-4 mt-6 rounded-xl font-bold text-white transition-all ${
+                    isCampaignEnded
+                      ? 'bg-slate-400 dark:bg-slate-700 cursor-not-allowed opacity-70'
+                      : 'bg-[#8c6dfd] hover:bg-[#7a59e6]'
+                  }`}
+                  onClick={handleDonate}
+                >
+                  {isCampaignEnded ? 'Campaign Ended' : `Fund Campaign (${symbol}${displayAmount || '0'})`}
+                </button>
+              </>
+            ) : (
+              /* THIRDWEB PAY / FIAT ON-RAMP TERMINAL */
+              <div className="mt-2 flex flex-col gap-4">
+                {!address ? (
+                  <div className="flex flex-col items-center">
+                    <p className="text-xs text-slate-400 mb-3 text-center">
+                      Step 1: Connect or sign in with email to create your wallet destination.
+                    </p>
+                    <ConnectEmbed
+                      theme="dark"
+                      modalTitle="Sign In to Buy Crypto & Donate"
+                      className="!w-full"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-xs text-slate-400 text-center">
+                      Step 2: Enter amount to buy via Credit Card / Debit Card / Apple Pay and donate directly to this smart contract.
+                    </p>
+
+                    <div className="relative flex items-center">
+                      <span className="absolute left-4 font-bold text-slate-400 text-[18px]">{symbol}</span>
+                      <input 
+                        type="number"
+                        placeholder={`Card donation in ${campaignCurrency}`}
+                        value={displayAmount}
+                        onChange={(e) => setDisplayAmount(e.target.value)}
+                        className="w-full py-[10px] pl-10 pr-[15px] outline-none border-[1px] border-slate-200 dark:border-[#3a3a43] bg-transparent text-slate-900 dark:text-white rounded-[10px] focus:border-[#8c6dfd]"
+                      />
+                    </div>
+
+                    {displayAmount && (
+                      <p className="text-right text-xs text-slate-400 italic">
+                        ⚡ Converted smart contract output: ~ {convertToEth(displayAmount, campaignCurrency)} ETH
+                      </p>
+                    )}
+
+                    {/* Integrated Thirdweb On-Ramp Connect & Buy Embed */}
+                    <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-[#3a3a43] p-2 bg-slate-900">
+                      <ConnectEmbed
+                        theme="dark"
+                        modalTitle="Thirdweb Card & Bank Checkout"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleDonate}
+                      className="w-full py-4 mt-2 bg-[#1dc071] hover:bg-[#1bb067] rounded-xl font-bold text-white transition-all shadow-lg"
+                    >
+                      Complete Smart Contract Funding ({symbol}{displayAmount || '0'})
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Refund Logic */}
             {isCampaignEnded && !hasReachedGoal && (
               <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded-xl mt-6">
-                <p className="text-red-600 dark:text-red-400 font-medium mb-4">
+                <p className="text-red-600 dark:text-red-400 font-medium mb-4 text-sm">
                   This campaign failed to reach its goal.
                 </p>
 
@@ -222,6 +340,9 @@ const CampaignDetails = () => {
                   title="Claim My Refund"
                   styles="bg-[#ff4444] w-full text-white"
                   handleClick={async () => {
+                    const isConnected = await ensureWalletConnected();
+                    if (!isConnected) return;
+
                     setIsLoading(true);
                     try {
                       await claimRefund(state.pId);
@@ -249,9 +370,14 @@ const CampaignDetails = () => {
                   styles="bg-[#4acd8d] w-full text-white"
                   handleClick={async () => {
                     setIsLoading(true);
-                    await withdrawFunds(state.pId);
-                    setIsLoading(false);
-                    navigate('/');
+                    try {
+                      await withdrawFunds(state.pId);
+                      navigate('/');
+                    } catch (err) {
+                      console.error("Withdrawal failed:", err);
+                    } finally {
+                      setIsLoading(false);
+                    }
                   }}
                 />
               </div>

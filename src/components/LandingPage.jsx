@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-// 🪙 Pull in Thirdweb connection hooks for direct wallet management
-import { useAddress, useConnect, MetaMaskWallet } from '@thirdweb-dev/react';
+// 🪙 Pull in Thirdweb connection hooks for Web3 & Embedded wallet management
+import { useAddress, useConnect, embeddedWallet, MetaMaskWallet } from '@thirdweb-dev/react';
 
-// 🔐 Import your new AuthModal component
+// 🔐 Import your AuthModal component
 import AuthModal from '../components/AuthModal';
 
 // --- IMAGE CAROUSEL ARRAYS ---
@@ -56,12 +56,24 @@ const AutoChangingImage = ({ images, altText }) => {
 
 const LandingPage = ({ onGetStarted }) => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const address = useAddress();
   const connect = useConnect();
-  const metamaskConfig = new MetaMaskWallet();
+
+  // 🎯 Re-populate search input if returning back with URL query params
+  const initialSearch = searchParams.get('search') || '';
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
 
   // 🔑 State for controlling Auth Modal popup visibility
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  // Keep search input synced if URL search params change
+  useEffect(() => {
+    const searchFromUrl = searchParams.get('search');
+    if (searchFromUrl !== null) {
+      setSearchTerm(searchFromUrl);
+    }
+  }, [searchParams]);
 
   // Helper function to handle cleaning up the scroll states safely
   const resetScrollPosition = () => {
@@ -73,26 +85,56 @@ const LandingPage = ({ onGetStarted }) => {
     window.scrollTo(0, 0);
   };
 
+  const handleDashboardNavigate = () => {
+    if (onGetStarted) onGetStarted();
+    resetScrollPosition();
+    navigate('/home');
+  };
+
+  const handleGetStartedClick = async () => {
+    if (address) {
+      // If already connected, jump straight to main app dashboard
+      handleDashboardNavigate();
+    } else {
+      // Open login/signup auth modal (Email / Web3 wallet prompt)
+      setIsAuthOpen(true);
+    }
+  };
+
+  // 🎯 Handle direct navigation to Active Campaigns with query params
+  const handleBrowseActiveCampaigns = () => {
+    resetScrollPosition();
+    const query = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '';
+    navigate(`/active-campaigns?from=landing${query}`);
+  };
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    handleBrowseActiveCampaigns();
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#13131a] text-slate-900 dark:text-white transition-colors duration-300 overflow-x-hidden font-epilogue">
       
       {/* 🌟 HERO BANNER CONTAINER */}
       <section className="max-w-[1280px] mx-auto px-4 pt-12 pb-6 flex flex-col items-center text-center relative">
         
-        {/* 🔙 BACK TO APP DASHBOARD NAVIGATION LINK BUTTON 
-        <div className="w-full max-w-[900px] flex justify-start mb-4">
+        {/* DASHBOARD DIRECT SHORTCUT */}
+        <div className="w-full max-w-[900px] flex justify-between items-center mb-6">
+          <span className="text-xs font-semibold text-slate-400">
+            {address ? `Connected: ${address.slice(0, 6)}...${address.slice(-4)}` : 'Guest Mode'}
+          </span>
+          {/*
           <button 
-            onClick={() => {
-              if (onGetStarted) onGetStarted();
-              resetScrollPosition();
-              navigate('/home');
-            }}
+            type="button"
+            onClick={handleDashboardNavigate}
             className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-[#1c1c24] hover:bg-slate-100 dark:hover:bg-[#2c2f32] text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-slate-200 dark:border-[#3a3a43] transition-all cursor-pointer shadow-sm"
           >
-            📊 Jump to App Dashboard
+            Go to App
           </button>
+          */}
         </div>
-        */}
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -107,11 +149,47 @@ const LandingPage = ({ onGetStarted }) => {
           <p className="text-slate-500 dark:text-[#808191] max-w-[650px] mx-auto mt-4 text-sm sm:text-base font-normal">
             Every donation stays locked safely in the smart contract escrow. Funds are only transferred if milestones are verified, protecting your contribution from fraud.
           </p>
+
+          {/* 🔍 SEARCH ACTIVE CAMPAIGNS FORM */}
+          <form onSubmit={handleSearchSubmit} className="mt-8 max-w-[550px] mx-auto flex items-center gap-2 p-2 bg-slate-100 dark:bg-[#13131a] rounded-2xl border border-slate-200 dark:border-[#3a3a43]">
+            <input
+              type="text"
+              placeholder="Search active campaigns..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-transparent px-4 py-2 text-sm outline-none text-slate-800 dark:text-white placeholder-slate-400"
+            />
+            <button
+              type="submit"
+              className="px-5 py-2.5 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-xs transition-all cursor-pointer whitespace-nowrap"
+            >
+              Search
+            </button>
+          </form>
+
+          {/* CTA BUTTONS */}
+          <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <button
+              type="button"
+              onClick={handleGetStartedClick}
+              className="w-full sm:w-auto px-8 py-3.5 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-sm transition-all shadow-lg cursor-pointer"
+            >
+              {address ? 'Go to App Dashboard' : 'Get Started'}
+            </button>
+            
+            <button
+              type="button"
+              onClick={handleBrowseActiveCampaigns}
+              className="w-full sm:w-auto px-8 py-3.5 bg-transparent hover:bg-slate-200/50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-sm transition-all border border-slate-300 dark:border-slate-700 cursor-pointer"
+            >
+              Browse Active Campaigns
+            </button>
+          </div>
         </motion.div>
       </section>
 
       {/* 📊 ASYMMETRIC CONTENT BLOCK */}
-      <section className="border-t border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1c1c24] transition-colors">
+      <section className="border-t border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1c1c24] transition-colors mt-8">
         <div className="max-w-[1280px] mx-auto grid grid-cols-1 md:grid-cols-2">
           <div className="p-8 sm:p-16 flex flex-col justify-center border-b md:border-b-0 md:border-r border-slate-200 dark:border-slate-800">
             <h2 className="text-4xl font-extrabold tracking-tight">
@@ -185,10 +263,11 @@ const LandingPage = ({ onGetStarted }) => {
           </div>
           
           <button 
-            onClick={() => setIsAuthOpen(true)}
+            type="button"
+            onClick={handleGetStartedClick}
             className="px-8 py-3 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-sm transition-all shadow-lg cursor-pointer"
           >
-            Get Started
+            {address ? 'Enter Application' : 'Get Started'}
           </button>
         </div>
       </footer>
@@ -197,6 +276,7 @@ const LandingPage = ({ onGetStarted }) => {
       <AuthModal 
         isOpen={isAuthOpen} 
         onClose={() => setIsAuthOpen(false)} 
+        onSuccess={handleDashboardNavigate}
       />
 
     </div>

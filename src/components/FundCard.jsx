@@ -63,27 +63,26 @@ const parseAndFormatAmount = (value) => {
   }
 };
 
-const FundCard = ({ 
-  owner, 
-  title, 
-  description, 
-  target, 
-  deadline, 
-  amountCollected, 
-  image, 
-  handleClick, 
-  pId, 
-  currency 
-}) => {
+const FundCard = (props) => {
+  const { 
+    owner, 
+    title, 
+    description, 
+    target, 
+    deadline, 
+    amountCollected, 
+    image, 
+    handleClick, 
+    pId, 
+    currency 
+  } = props;
 
-  console.log(deadline);
-  console.log(typeof deadline);
-  console.log(new Date(deadline));
   const remainingDays = daysLeft(deadline);
   
   // 🔍 Extract symbol and formatted values
   const currencySymbol = getCurrencySymbol(currency);
- // First convert Wei -> ETH
+
+  // First convert Wei -> ETH
   const rawCollected = parseAndFormatAmount(amountCollected);
   const rawTarget = parseAndFormatAmount(target);
 
@@ -101,7 +100,6 @@ const FundCard = ({
   // 📊 Progress Calculation Handler
   const calculateProgress = (collectedVal, targetVal) => {
     try {
-      // Normalize raw Wei to ETH float for calculation if needed
       let c = collectedVal ? collectedVal.toString() : '0';
       let t = targetVal ? targetVal.toString() : '1';
 
@@ -124,17 +122,23 @@ const FundCard = ({
 
   const progress = calculateProgress(amountCollected, target);
 
+  const onCardClick = () => {
+    if (handleClick) {
+      handleClick(props);
+    }
+  };
+
   return (
     <motion.div 
       whileHover={{ y: -10 }}
       className="sm:w-[288px] w-full rounded-[20px] bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] hover:border-[#8c6dfd]/50 transition-all cursor-pointer overflow-hidden shadow-md dark:shadow-2xl group"
-      onClick={handleClick}
+      onClick={onCardClick}
     >
       {/* 🖼️ IMAGE SECTION */}
       <div className="relative h-[158px] w-full overflow-hidden">
         <img 
           src={image} 
-          alt="fund" 
+          alt={title || "fund"} 
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
         />
         <div className="absolute top-3 right-3 bg-white/80 dark:bg-[#13131a]/80 backdrop-blur-md px-3 py-1 rounded-full border border-slate-200 dark:border-white/10">
@@ -184,16 +188,16 @@ const FundCard = ({
           </div>
 
           <div className="flex flex-col items-end">
-          <h4 className="font-epilogue font-bold text-[14px] text-slate-700 dark:text-[#b2b3bd] leading-[22px]">
-            {remainingDays > 0 ? remainingDays : 'Ended'}
-          </h4>
+            <h4 className="font-epilogue font-bold text-[14px] text-slate-700 dark:text-[#b2b3bd] leading-[22px]">
+              {remainingDays > 0 ? remainingDays : 'Ended'}
+            </h4>
 
-          {remainingDays > 0 && (
-            <p className="mt-[2px] font-epilogue font-normal text-[11px] leading-[18px] text-slate-500 dark:text-[#808191] uppercase tracking-wider text-right">
-              {remainingDays === 1 ? 'Day Left' : 'Days Left'}
-            </p>
-          )}
-        </div>
+            {remainingDays > 0 && (
+              <p className="mt-[2px] font-epilogue font-normal text-[11px] leading-[18px] text-slate-500 dark:text-[#808191] uppercase tracking-wider text-right">
+                {remainingDays === 1 ? 'Day Left' : 'Days Left'}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* 👤 OWNER SECTION */}

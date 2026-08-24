@@ -42,36 +42,45 @@ const Navbar = () => {
     }
   }, [address]);
 
-  // 🔍 AUTOMATED METAMASK TRAPPING LOGIC
-  // inside Navbar.jsx -> handleButtonClick
-const handleButtonClick = async () => {
-  if (!address) {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
-    if (isMobile) {
-      const cleanUrl = window.location.href.replace(/^https?:\/\//, '');
-      window.location.href = `https://metamask.app.link/dapp/${cleanUrl}`;
-      return;
-    }
+  // 🔍 SAFE & ROBUST METAMASK TRAPPING LOGIC (ANDROID + IOS + DESKTOP)
+  const handleButtonClick = async () => {
+    if (!address) {
+      // 1. If inside MetaMask's internal browser or extension is injected
+      if (typeof window.ethereum !== 'undefined') {
+        try {
+          await connectWallet();
+        } catch (error) {
+          console.error("MetaMask connection failed:", error);
+        }
+        return;
+      }
 
-    // 🚨 Safely check if MetaMask/Ethereum provider is installed in the browser first
-    if (typeof window.ethereum === 'undefined') {
-      alert("MetaMask is not installed! Please install the MetaMask extension or open this site inside the MetaMask app.");
+      // 2. Check if user is on Mobile
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+      if (isMobile) {
+        // Strip out protocol (http:// or https://) to clean up domain
+        const currentUrl = window.location.href.replace(/^https?:\/\//, '');
+        
+        // Universal MetaMask Deep Link (Works reliably across Android Chrome & iOS Safari)
+        const metamaskAppDeepLink = `https://metamask.app.link/dapp/${currentUrl}`;
+
+        // Redirect directly to open inside MetaMask app
+        window.location.href = metamaskAppDeepLink;
+        return;
+      }
+
+      // 3. If Desktop without MetaMask extension
+      alert("MetaMask extension not found! Please install the MetaMask extension to connect.");
       window.open('https://metamask.io/download/', '_blank');
-      return;
-    }
 
-    try {
-      await connectWallet();
-    } catch (error) {
-      console.error("MetaMask connection failed:", error);
+    } else if (!userStatus?.exists) {
+      setIsModalOpen(true);
+    } else {
+      navigate('/create-campaign');
     }
-  } else if (!userStatus?.exists) {
-    setIsModalOpen(true);
-  } else {
-    navigate('/create-campaign');
-  }
-};
+  };
+
   return (
     <div className="flex md:flex-row flex-col-reverse justify-between mb-[35px] gap-6 relative z-50 font-epilogue">
       

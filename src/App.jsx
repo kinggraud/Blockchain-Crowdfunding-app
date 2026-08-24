@@ -2,6 +2,7 @@ import React from 'react';
 import { Route, Routes, Navigate, useLocation } from 'react-router-dom';
 
 import LandingPage from './components/LandingPage';
+import ActiveCampaigns from './pages/ActiveCampaigns';
 import { Sidebar, Navbar, SignupModal, AuthModal } from './components';
 import Footer from "./components/Footer";
 import { Logout } from './pages';
@@ -24,7 +25,7 @@ const App = () => {
     address = '' 
   } = context;
 
-  // 1️⃣ Loading screen while Firebase checks persistent session on refresh
+  // 1️⃣ Loading screen while Firebase/Thirdweb checks persistent session on refresh
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-[#1c1c24] flex justify-center items-center font-epilogue">
@@ -33,14 +34,32 @@ const App = () => {
     );
   }
 
-  // 2️⃣ STANDALONE LANDING PAGE ROUTE (Applies to both '/' and '/landing')
-  // Renders pure LandingPage without Sidebar, Navbar, or Dashboard wrappers
-  if (location.pathname === '/' || location.pathname === '/landing') {
+  // 2️⃣ Determine if the requested campaign details page should be public/standalone
+  // It renders public ONLY IF coming from public pages or without an active logged-in session
+  const isCampaignDetailsPath = location.pathname.startsWith('/campaign-details/');
+  const isExplicitFromDashboard = location.state?.fromDashboard === true;
+  const isLoggedIn = Boolean(address || user);
+
+  const isPublicCampaignDetails = isCampaignDetailsPath && !isExplicitFromDashboard && !isLoggedIn;
+
+  const isPublicRoute = 
+    location.pathname === '/' || 
+    location.pathname === '/landing' || 
+    location.pathname === '/active-campaigns' ||
+    isPublicCampaignDetails;
+
+  // 3️⃣ STANDALONE PUBLIC ROUTES (No Sidebar, No Navbar, No Dashboard Shell)
+  if (isPublicRoute) {
     return (
       <>
-        <LandingPage />
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/landing" element={<LandingPage />} />
+          <Route path="/active-campaigns" element={<ActiveCampaigns />} />
+          <Route path="/campaign-details/:id" element={<CampaignDetails />} />
+        </Routes>
 
-        {/* Global Auth Modal in case user clicks Sign In on Landing Page */}
+        {/* Global Auth Modal for public visitors clicking Sign In */}
         {setIsAuthModalOpen && (
           <AuthModal 
             isOpen={isAuthModalOpen}
@@ -51,7 +70,7 @@ const App = () => {
     );
   }
 
-  // 3️⃣ MAIN APP DASHBOARD LAYOUT
+  // 4️⃣ MAIN APP DASHBOARD LAYOUT (Includes Sidebar, Navbar, and Footer for Logged-In Users)
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#1c1c24] transition-colors duration-300 font-epilogue">
       

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStateContext } from "../context";
+import { auth, db } from "../firebase"; // Import Firebase auth and db
+import { doc, setDoc } from "firebase/firestore";
 
 const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
   const navigate = useNavigate();
@@ -11,26 +13,45 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
     registerUser 
   } = useStateContext() || {};
   
-  // Tab/Role state: snaps to 'initialRole' when present, defaults to 'recipient'
   const [activeRole, setActiveRole] = useState(initialRole || "recipient");
   
-  // Sync activeRole whenever modal opens or initialRole changes
   useEffect(() => {
     if (isOpen) {
       setActiveRole(initialRole || "recipient");
     }
   }, [isOpen, initialRole]);
 
-  // Admin form inputs
   const [orgName, setOrgName] = useState("");
   const [adminDomain, setAdminDomain] = useState("");
-  
-  // Recipient form inputs
   const [recipientDomain, setRecipientDomain] = useState("");
-
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
+
+  // Generic helper function to handle updating Firestore and Context
+  const saveRoleToFirebase = async (roleData) => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) {
+      throw new Error("No active Firebase user found. Please sign up or sign in first.");
+    }
+
+    // 1. Save directly into Firestore under users -> UID
+    const userRef = doc(db, "users", firebaseUser.uid);
+    await setDoc(userRef, roleData, { merge: true });
+
+    // 2. Also register via Web3 Smart Contract context (if available)
+    if (registerUser) {
+      try {
+        await registerUser({ 
+          role: roleData.role === 1 ? 'admin' : 'recipient', 
+          domain: roleData.domain, 
+          organization: roleData.organization || "" 
+        });
+      } catch (contractErr) {
+        console.warn("Contract registration failed/bypassed:", contractErr);
+      }
+    }
+  };
 
   const handleAdminRegister = async (e) => {
     e.preventDefault();
@@ -42,25 +63,18 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
       const newAdminData = {
         address: currentAddress,
         role: 1, // 1 = Admin
+        roleName: 'admin',
         domain: adminDomain || "General Academic",
         organization: orgName || "Academic Institution",
         isVerified: true,
         exists: true,
+        updatedAt: new Date().toISOString()
       };
 
-      if (registerUser) {
-        try {
-          await registerUser({ role: 'admin', domain: adminDomain, organization: orgName });
-        } catch (contractErr) {
-          console.warn("Contract registration failed/bypassed, saving locally:", contractErr);
-        }
-      }
+      // Save to Firestore
+      await saveRoleToFirebase(newAdminData);
 
-      // Sync across all key variations so AdminGuard/AdminProfile read it seamlessly
-      localStorage.setItem(`user_status_${currentAddress}`, JSON.stringify(newAdminData));
-      localStorage.setItem(`admin_status_${currentAddress}`, JSON.stringify(newAdminData));
-      localStorage.setItem(`admin_account_${currentAddress}`, JSON.stringify(newAdminData));
-
+      // Update state in React Context
       if (setUserStatus) setUserStatus(newAdminData);
       if (setAdminStatus) setAdminStatus(newAdminData);
 
@@ -84,24 +98,17 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
       const newRecipientData = {
         address: currentAddress,
         role: 0, // 0 = Recipient
+        roleName: 'recipient',
         domain: recipientDomain || "Student",
         isVerified: true,
         exists: true,
+        updatedAt: new Date().toISOString()
       };
 
-      if (registerUser) {
-        try {
-          await registerUser({ role: 'recipient', domain: recipientDomain });
-        } catch (contractErr) {
-          console.warn("Contract registration failed/bypassed, saving locally:", contractErr);
-        }
-      }
+      // Save to Firestore
+      await saveRoleToFirebase(newRecipientData);
 
-      // Sync across all key variations for robust state reading
-      localStorage.setItem(`user_status_${currentAddress}`, JSON.stringify(newRecipientData));
-      localStorage.setItem(`recipient_status_${currentAddress}`, JSON.stringify(newRecipientData));
-      localStorage.setItem(`recipient_account_${currentAddress}`, JSON.stringify(newRecipientData));
-
+      // Update state in React Context
       if (setUserStatus) setUserStatus(newRecipientData);
       if (setRecipientStatus) setRecipientStatus(newRecipientData);
 
@@ -133,7 +140,7 @@ const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
           </button>
         </div>
 
-        {/* Role Toggle Selector - ONLY show if initialRole wasn't explicitly provided */}
+        {/* Role Toggle Selector */}
         {!initialRole && (
           <div className="flex bg-slate-100 dark:bg-[#2c2f36] p-1 rounded-xl mb-6">
             <button
