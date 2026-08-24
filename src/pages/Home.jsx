@@ -4,6 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import DisplayCampaigns from '../components/DisplayCampaigns';
 import { useStateContext } from '../context';
 
+// 1. IMPORT FIRESTORE FUNCTIONS AND DB INSTANCE
+import { db } from '../firebase';
+import { collection, onSnapshot, query } from 'firebase/firestore';
+
 const Home = () => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
@@ -16,9 +20,45 @@ const Home = () => {
 
   const [environments, setEnvironments] = useState([]);
 
+  // 🚀 2. FETCH ENVIRONMENTS FROM FIRESTORE IN REAL-TIME
   useEffect(() => {
-    const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
-    setEnvironments(savedEnvs);
+    let unsubscribe = () => {};
+
+    try {
+      // FIXED: Synchronized collection name to 'admin_environments'
+      const envsRef = collection(db, 'admin_environments');
+      
+      // Fetch and listen to live updates from Firestore
+      unsubscribe = onSnapshot(
+        envsRef,
+        (snapshot) => {
+          const fetchedEnvs = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+
+          if (fetchedEnvs.length > 0) {
+            setEnvironments(fetchedEnvs);
+            localStorage.setItem('admin_environments', JSON.stringify(fetchedEnvs));
+          } else {
+            // Fallback to local storage if Firestore collection is empty
+            const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
+            setEnvironments(savedEnvs);
+          }
+        },
+        (error) => {
+          console.warn("Could not fetch Firestore environments, falling back to LocalStorage:", error);
+          const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
+          setEnvironments(savedEnvs);
+        }
+      );
+    } catch (err) {
+      console.error("Error setting up Firestore snapshot listener:", err);
+      const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
+      setEnvironments(savedEnvs);
+    }
+
+    return () => unsubscribe();
   }, []);
 
   const fetchCampaigns = async () => {
@@ -105,10 +145,10 @@ const Home = () => {
                     </span>
                   </div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white group-hover:text-[#8c6dfd] transition-colors">
-                    {env.title || "Funding Environment"}
+                    {env.title || env.name || "Funding Environment"}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-[#808191] mt-2">
-                    Campaigns created here will be submitted to this admin for on-chain verification and approval.
+                    {env.description || "Campaigns created here will be submitted to this admin for on-chain verification and approval."}
                   </p>
                 </div>
 

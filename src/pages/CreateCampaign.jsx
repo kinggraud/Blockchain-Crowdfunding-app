@@ -7,8 +7,9 @@ import { checkIfImage } from '../utils';
 import { money } from '../assets';
 import { ethers } from 'ethers';
 
-// 🔐 Import Firebase Auth to check logged-in status
-import { auth } from '../firebase';
+// 🔐 Import Firebase & Firestore handlers
+import { auth, db } from '../firebase';
+import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 // 🚀 IMPORT LIVE METRIC HANDLERS
 import { fetchLiveRates, convertToEth, CURRENCY_SYMBOLS } from '../utils/cryptoUtils';
@@ -54,25 +55,45 @@ const CreateCampaign = () => {
     };
     initLiveRates();
 
-    // 1. Get the envId strictly from the current URL search query
-    const urlParams = new URLSearchParams(window.location.search);
-    const currentEnvId = urlParams.get('envId');
+    const fetchEnvironmentFromFirestore = async () => {
+      // 1. Get the envId strictly from URL search query parameters
+      const currentEnvId = searchParams.get('envId');
 
-    // 2. ONLY set an environment IF 'envId' is explicitly present in the URL query
-    if (currentEnvId) {
+      if (!currentEnvId) {
+        // 🛑 STRICT RESET: If there's no ?envId= in the URL, force Generic/Normal mode!
+        setActiveEnvironment(null);
+        setCustomResponses({});
+        return;
+      }
+
+      // Check router state first
       if (location.state?.environment) {
         setActiveEnvironment(location.state.environment);
-      } else {
-        const storedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
-        const matchedEnv = storedEnvs.find((e) => String(e.id) === String(currentEnvId));
-        setActiveEnvironment(matchedEnv || null);
+        return;
       }
-    } else {
-      // 🛑 STRICT RESET: If there's no ?envId= in the URL, force Generic/Normal mode!
-      setActiveEnvironment(null);
-      setCustomResponses({});
-    }
-  }, [location.search, location.pathname]);
+
+      // 2. Fetch target environment directly from Firestore
+      try {
+        const envDocRef = doc(db, 'admin_environments', currentEnvId);
+        const envSnap = await getDoc(envDocRef);
+
+        if (envSnap.exists()) {
+          setActiveEnvironment({
+            id: envSnap.id,
+            ...envSnap.data()
+          });
+        } else {
+          console.warn(`Environment with ID ${currentEnvId} not found in Firestore.`);
+          setActiveEnvironment(null);
+        }
+      } catch (error) {
+        console.error("Error fetching environment from Firestore:", error);
+        setActiveEnvironment(null);
+      }
+    };
+
+    fetchEnvironmentFromFirestore();
+  }, [location.search, location.pathname, searchParams]);
 
   const handleChange = (field, e) => {
     setForm({ ...form, [field]: e.target.value });
@@ -167,13 +188,12 @@ const CreateCampaign = () => {
 
         const weiTargetStr = parseEthToWei(cleanTargetStr);
 
-        // 📋 CASE A: SUBMISSION INSIDE AN ADMIN ENVIRONMENT -> QUEUE FOR APPROVAL
+        // 📋 CASE A: SUBMISSION INSIDE AN ADMIN ENVIRONMENT -> STORE IN FIRESTORE
         if (activeEnvironment) {
           const pendingSubmission = {
-            id: `pending_${Date.now()}`,
             envId: activeEnvironment.id,
-            envTitle: activeEnvironment.title,
-            adminAddress: activeEnvironment.adminAddress?.toLowerCase() || '',
+            envTitle: activeEnvironment.title || '',
+            adminAddress: (activeEnvironment.adminAddress || '').toLowerCase(),
             recipientAddress: currentAddress.toLowerCase(),
             formValues: {
               ...form,
@@ -184,16 +204,12 @@ const CreateCampaign = () => {
               deadlineUnix: deadlineInSeconds,
               customResponses: customResponses
             },
-            status: 'pending', // 'pending' | 'approved' | 'rejected' | 'deployed'
-            createdAt: new Date().toISOString()
+            status: 'pending', // 'pending' | 'approved' | 'rejected'
+            createdAt: serverTimestamp()
           };
 
-          // Save submission to pending queue storage
-          const existingQueue = JSON.parse(localStorage.getItem('pending_campaign_submissions') || '[]');
-          localStorage.setItem(
-            'pending_campaign_submissions', 
-            JSON.stringify([...existingQueue, pendingSubmission])
-          );
+          // Save submission to Firestore pending collection
+          await addDoc(collection(db, 'pending_campaign_submissions'), pendingSubmission);
 
           alert("🚀 Campaign submitted for admin approval! You will be prompted to launch on-chain once verified.");
           navigate('/home');

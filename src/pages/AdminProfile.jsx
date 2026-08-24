@@ -2,17 +2,31 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useStateContext } from '../context';
+import { db } from '../firebase'; // Ensure your firebase export is correctly path-referenced
+import { 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs, 
+  setDoc, 
+  addDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  serverTimestamp 
+} from 'firebase/firestore';
 
 const AdminProfile = () => {
   const navigate = useNavigate();
   const { address, adminStatus, userStatus, setAdminStatus, createCampaign } = useStateContext() || {};
   
   // Dynamic lookup for active admin info
-  const currentAdmin = adminStatus || userStatus;
+  const [currentAdmin, setCurrentAdmin] = useState(adminStatus || userStatus || null);
 
   // Interceptor State
   const [isRegisteredAdmin, setIsRegisteredAdmin] = useState(false);
   const [isAuthenticatedAdmin, setIsAuthenticatedAdmin] = useState(false);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
   // Form states for Admin Registration
   const [regName, setRegName] = useState('');
@@ -34,78 +48,145 @@ const AdminProfile = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [deployingId, setDeployingId] = useState(null);
 
-  // Load environments & submissions on mount or address/admin updates
+  // Sync Admin Status with Firestore whenever connected address changes
   useEffect(() => {
-    if (!address) {
-      setIsRegisteredAdmin(false);
-      setIsAuthenticatedAdmin(false);
-      return;
-    }
-
-    const storedAdmin = localStorage.getItem(`admin_account_${address}`);
-    const isSessionAuth = sessionStorage.getItem(`admin_session_${address}`);
-
-    if (storedAdmin || (currentAdmin && (currentAdmin.role === 1 || currentAdmin.role === '1' || currentAdmin.isAdmin))) {
-      setIsRegisteredAdmin(true);
-      if (isSessionAuth === 'true') {
-        setIsAuthenticatedAdmin(true);
+    const verifyAdminAndLoadData = async () => {
+      if (!address) {
+        setIsRegisteredAdmin(false);
+        setIsAuthenticatedAdmin(false);
+        setIsLoadingAuth(false);
+        return;
       }
-    } else {
-      setIsRegisteredAdmin(false);
-      setIsAuthenticatedAdmin(false);
+
+      setIsLoadingAuth(true);
+      const normalizedAddress = address.toLowerCase();
+
+      try {
+        // 1. Check user profile in Firestore
+        const userDocRef = doc(db, 'users', normalizedAddress);
+        const userSnap = await getDoc(userDocRef);
+
+        let adminData = null;
+
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          if (data.role === 'admin' || data.role === 1 || data.role === '1' || data.isAdmin) {
+            adminData = data;
+          }
+        }
+
+        // Alternative lookup: Query users collection by walletAddress field if document key is not address
+        if (!adminData) {
+          const q = query(collection(db, 'users'), where('walletAddress', '==', normalizedAddress));
+          const querySnap = await getDocs(q);
+          if (!querySnap.empty) {
+            const data = querySnap.docs[0].data();
+            if (data.role === 'admin' || data.role === 1 || data.role === '1' || data.isAdmin) {
+              adminData = data;
+            }
+          }
+        }
+
+        if (adminData) {
+          setIsRegisteredAdmin(true);
+          setIsAuthenticatedAdmin(true); // Automatically authenticated via active MetaMask session
+          setCurrentAdmin(adminData);
+          if (setAdminStatus) setAdminStatus(adminData);
+        } else {
+          setIsRegisteredAdmin(false);
+          setIsAuthenticatedAdmin(false);
+        }
+
+        // 2. Fetch Environments and Submissions from Firestore
+        await loadEnvironmentsAndSubmissions(normalizedAddress);
+
+      } catch (error) {
+        console.error("Error verifying admin status from Firestore:", error);
+        setIsRegisteredAdmin(false);
+        setIsAuthenticatedAdmin(false);
+      } font-epilogue; {
+        setIsLoadingAuth(false);
+      }
+    };
+
+    verifyAdminAndLoadData();
+  }, [address]);
+
+  const loadEnvironmentsAndSubmissions = async (adminAddr) => {
+    const targetAddress = (adminAddr || address)?.toLowerCase();
+    if (!targetAddress) return;
+
+    try {
+      // Load Environments from Firestore ('admin_environments' collection)
+      const envsQuery = query(
+        collection(db, "admin_environments"), 
+        where("adminAddress", "==", targetAddress)
+      );
+      const envsSnap = await getDocs(envsQuery);
+      const loadedEnvs = envsSnap.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      }));
+      setEnvironments(loadedEnvs);
+
+      // Cache environments locally for seamless fallback on Home.jsx
+      localStorage.setItem('admin_environments', JSON.stringify(loadedEnvs));
+
+      // Load Pending Submissions from Firestore
+      const subsQuery = query(
+        collection(db, "pending_campaign_submissions"), 
+        where("adminAddress", "==", targetAddress)
+      );
+      const subsSnap = await getDocs(subsQuery);
+      const loadedSubs = subsSnap.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      }));
+      setPendingCampaigns(loadedSubs);
+
+    } catch (error) {
+      console.error("Failed to load environments/submissions from Firestore:", error);
     }
-
-    loadEnvironmentsAndSubmissions();
-  }, [address, currentAdmin]);
-
-  const loadEnvironmentsAndSubmissions = () => {
-    const existingEnvs = JSON.parse(localStorage.getItem("admin_environments") || "[]");
-    const filteredEnvs = address 
-      ? existingEnvs.filter(env => env.adminAddress?.toLowerCase() === address?.toLowerCase())
-      : existingEnvs;
-    setEnvironments(filteredEnvs);
-
-    // Load Pending Submissions aligned with CreateCampaign schema
-    const allSubmissions = JSON.parse(localStorage.getItem("pending_campaign_submissions") || "[]");
-    const adminEnvIds = filteredEnvs.map(e => String(e.id));
-    
-    // Filter matching environment ID or admin address
-    const relevantSubmissions = allSubmissions.filter(sub => 
-      adminEnvIds.includes(String(sub.envId)) || 
-      (sub.adminAddress && sub.adminAddress.toLowerCase() === address?.toLowerCase())
-    );
-    setPendingCampaigns(relevantSubmissions);
   };
 
-  // Handler: Register New Admin
-  const handleAdminRegistration = (e) => {
+  // Handler: Register New Admin in Firestore
+  const handleAdminRegistration = async (e) => {
     e.preventDefault();
     if (!regName.trim() || !regDomain.trim()) {
       alert("Please enter both Organization Name and Domain.");
       return;
     }
 
+    const normalizedAddress = address.toLowerCase();
     const adminRecord = {
-      role: 1,
+      role: 'admin',
       organization: regName,
       domain: regDomain,
-      address: address,
-      registeredAt: new Date().toISOString()
+      walletAddress: normalizedAddress,
+      registeredAt: serverTimestamp()
     };
 
-    localStorage.setItem(`admin_account_${address}`, JSON.stringify(adminRecord));
-    sessionStorage.setItem(`admin_session_${address}`, 'true');
+    try {
+      setIsLoadingAuth(true);
+      await setDoc(doc(db, 'users', normalizedAddress), adminRecord, { merge: true });
 
-    if (setAdminStatus) setAdminStatus(adminRecord);
-
-    setIsRegisteredAdmin(true);
-    setIsAuthenticatedAdmin(true);
+      if (setAdminStatus) setAdminStatus(adminRecord);
+      setCurrentAdmin(adminRecord);
+      setIsRegisteredAdmin(true);
+      setIsAuthenticatedAdmin(true);
+      
+      await loadEnvironmentsAndSubmissions(normalizedAddress);
+    } catch (error) {
+      console.error("Failed to register admin in Firestore:", error);
+      alert("Registration failed. Please check your network connection.");
+    } finally {
+      setIsLoadingAuth(false);
+    }
   };
 
   // Handler: Login Existing Admin
   const handleAdminSignIn = (e) => {
     e.preventDefault();
-    sessionStorage.setItem(`admin_session_${address}`, 'true');
     setIsAuthenticatedAdmin(true);
   };
 
@@ -122,7 +203,7 @@ const AdminProfile = () => {
     setQuestions(questions.map((q) => (q.id === id ? { ...q, [key]: value } : q)));
   };
 
-  // Save Custom Environment Template
+  // Save Custom Environment Template to Firestore
   const handleSaveEnvironment = async (e) => {
     e.preventDefault();
     if (!envName || questions.some(q => !q.label.trim())) {
@@ -131,25 +212,27 @@ const AdminProfile = () => {
     }
 
     setIsSaving(true);
-    const currentAddress = address || window.ethereum?.selectedAddress || "0x_anonymous";
+    const currentAddress = (address || window.ethereum?.selectedAddress || "0x0000000000000000000000000000000000000000").toLowerCase();
 
     const newEnvironment = {
-      id: `env_${Date.now()}`,
-      adminAddress: currentAddress.toLowerCase(),
+      adminAddress: currentAddress,
       title: envName,
       domain: currentAdmin?.domain || "General Academic",
       organization: currentAdmin?.organization || "Academic Institution",
       description,
       customQuestions: questions,
-      createdAt: new Date().toISOString()
+      createdAt: serverTimestamp()
     };
 
     try {
-      const existingEnvs = JSON.parse(localStorage.getItem("admin_environments") || "[]");
-      const updatedEnvs = [...existingEnvs, newEnvironment];
-      localStorage.setItem("admin_environments", JSON.stringify(updatedEnvs));
+      const docRef = await addDoc(collection(db, "admin_environments"), newEnvironment);
 
-      loadEnvironmentsAndSubmissions();
+      // Local backup sync
+      const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
+      const updatedLocal = [{ id: docRef.id, ...newEnvironment }, ...savedEnvs];
+      localStorage.setItem('admin_environments', JSON.stringify(updatedLocal));
+
+      await loadEnvironmentsAndSubmissions(currentAddress);
 
       alert("Environment template created! Users can now submit campaigns to this environment for your review.");
       
@@ -158,14 +241,14 @@ const AdminProfile = () => {
       setQuestions([{ id: Date.now(), label: '', type: 'text', required: true }]);
       setShowFormBuilder(false);
     } catch (error) {
-      console.error("Failed to save environment template:", error);
-      alert("Failed to save configuration.");
+      console.error("Failed to save environment template in Firestore:", error);
+      alert("Failed to save configuration: " + error.message);
     } finally {
       setIsSaving(false);
     }
   };
 
-  // 🚀 ADMIN APPROVAL HANDLER: Deploy Campaign directly to Smart Contract
+  // ADMIN APPROVAL HANDLER: Deploy Campaign directly to Smart Contract & Remove from Firestore
   const handleApproveAndDeploy = async (submission) => {
     if (!createCampaign) {
       alert("Contract context error. Ensure wallet is connected.");
@@ -190,15 +273,13 @@ const AdminProfile = () => {
         recipient: submission.recipientAddress || form.recipientAddress
       });
 
-      // Remove approved item from storage queue
-      const allSubmissions = JSON.parse(localStorage.getItem("pending_campaign_submissions") || "[]");
-      const updatedSubmissions = allSubmissions.filter(
-        s => (s.id || s.submissionId) !== submissionId
-      );
-      localStorage.setItem("pending_campaign_submissions", JSON.stringify(updatedSubmissions));
+      // Delete approved item from Firestore pending collection
+      if (submissionId) {
+        await deleteDoc(doc(db, "pending_campaign_submissions", submissionId));
+      }
 
       alert("🎉 Campaign Approved & Successfully Deployed to Blockchain!");
-      loadEnvironmentsAndSubmissions();
+      await loadEnvironmentsAndSubmissions(address.toLowerCase());
     } catch (error) {
       console.error("Failed to deploy campaign on-chain:", error);
       alert(`Approval Failed: ${error.reason || error.message || "Execution reverted"}`);
@@ -207,15 +288,27 @@ const AdminProfile = () => {
     }
   };
 
-  const handleRejectSubmission = (targetId) => {
+  const handleRejectSubmission = async (targetId) => {
     if (!window.confirm("Are you sure you want to reject and remove this submission?")) return;
-    const allSubmissions = JSON.parse(localStorage.getItem("pending_campaign_submissions") || "[]");
-    const updated = allSubmissions.filter(s => (s.id || s.submissionId) !== targetId);
-    localStorage.setItem("pending_campaign_submissions", JSON.stringify(updated));
-    loadEnvironmentsAndSubmissions();
+    try {
+      await deleteDoc(doc(db, "pending_campaign_submissions", targetId));
+      await loadEnvironmentsAndSubmissions(address.toLowerCase());
+    } catch (error) {
+      console.error("Failed to reject submission:", error);
+      alert("Failed to remove submission from Firestore.");
+    }
   };
 
   // GUARDS
+  if (isLoadingAuth) {
+    return (
+      <div className="flex-1 max-w-[600px] mx-auto my-12 p-8 font-epilogue text-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#8c6dfd] mx-auto mb-4" />
+        <p className="text-sm text-slate-500 dark:text-[#808191]">Verifying Admin Credentials...</p>
+      </div>
+    );
+  }
+
   if (!address) {
     return (
       <div className="flex-1 max-w-[600px] mx-auto my-12 p-8 font-epilogue text-center bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-3xl shadow-xl">
@@ -383,7 +476,7 @@ const AdminProfile = () => {
         )}
       </AnimatePresence>
 
-      {/* 📥 PENDING APPROVAL SECTION */}
+      {/* PENDING APPROVAL SECTION */}
       <div className="w-full bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-3xl p-6 sm:p-8 shadow-xl mb-8">
         <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">📥 Submitted Campaigns Awaiting Admin Review</h2>
         <p className="text-xs text-slate-400 mb-6">Review applicant submissions before approving and broadcasting them onto the blockchain.</p>
@@ -417,7 +510,7 @@ const AdminProfile = () => {
                         {formData.displayTarget || formData.target} {formData.currency || 'ETH'}
                       </span>
                       <p className="text-[10px] text-slate-400 mt-1">
-                        Submitted: {sub.createdAt ? new Date(sub.createdAt).toLocaleDateString() : 'Recently'}
+                        Submitted: {sub.createdAt?.toDate ? sub.createdAt.toDate().toLocaleDateString() : (sub.createdAt ? new Date(sub.createdAt).toLocaleDateString() : 'Recently')}
                       </p>
                     </div>
                   </div>
@@ -460,7 +553,7 @@ const AdminProfile = () => {
         )}
       </div>
 
-      {/* 🚀 ACTIVE ENVIRONMENT LIST */}
+      {/* ACTIVE ENVIRONMENT LIST */}
       <div className="w-full bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-3xl p-6 sm:p-8 shadow-xl">
         <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Configured Verification Environments</h2>
         <p className="text-xs text-slate-400 mb-6">Share environment links so users can register and submit projects for review.</p>

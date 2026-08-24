@@ -2,36 +2,45 @@ import React, { useContext, createContext, useState, useEffect, useCallback } fr
 import { useAddress, useContract, useContractWrite, useConnect, useDisconnect, metamaskWallet } from '@thirdweb-dev/react';
 import { ethers } from 'ethers';
 
+// 1. IMPORT FIRESTORE FUNCTIONS & YOUR FIREBASE DB INSTANCE
+import { db } from "../firebase"; // Adjust this path if your firebase config is stored elsewhere
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+
 const StateContext = createContext();
 
 export const StateContextProvider = ({ children }) => {
+  // 📜 SMART CONTRACT INSTANTIATION
   const { contract } = useContract('0x785EAf8521aFE33171Fa1bFB7B71A28B3FafB08f');
   const { mutateAsync: createCampaignFn } = useContractWrite(contract, 'createCampaign');
+
+  // 💰 LIVE CURRENCY PRICING STATE
   const [ethPrice, setEthPrice] = useState({ usd: 3000, ngn: 4500000 });
 
+  // 👛 WALLET & CONNECTIONS
   const address = useAddress();
   const connect = useConnect();
   const disconnect = useDisconnect();
 
-  // 🔍 Global UI & Modal Control States
+  // 🔍 GLOBAL UI & MODAL STATES
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSignupModalOpen, setIsSignupModalOpen] = useState(false);
   const [signupInitialRole, setSignupInitialRole] = useState(null); // 'admin' | 'recipient' | null
 
-  // 👤 Role-based Account Profiles
+  // 👤 ROLE-BASED ACCOUNT PROFILES
   const [adminStatus, setAdminStatus] = useState(null);
   const [recipientStatus, setRecipientStatus] = useState(null);
   const [activeRole, setActiveRole] = useState('recipient'); // 'admin' | 'recipient'
 
-  // Backward-compatible fallback status pointer
+  // BACKWARD-COMPATIBLE FALLBACK STATUS POINTER
   const [userStatus, setUserStatus] = useState(() => {
     const currentAddress = address || (typeof window !== 'undefined' && window.ethereum?.selectedAddress);
     if (!currentAddress) return { exists: false, role: 0, domain: "", isVerified: false };
     
-    const savedRecipient = localStorage.getItem(`recipient_account_${currentAddress}`) || localStorage.getItem(`recipient_status_${currentAddress}`);
-    const savedAdmin = localStorage.getItem(`admin_account_${currentAddress}`) || localStorage.getItem(`admin_status_${currentAddress}`);
-    const savedGeneral = localStorage.getItem(`user_status_${currentAddress}`);
+    const normalizedAddr = currentAddress.toLowerCase();
+    const savedRecipient = localStorage.getItem(`recipient_account_${normalizedAddr}`) || localStorage.getItem(`recipient_status_${normalizedAddr}`);
+    const savedAdmin = localStorage.getItem(`admin_account_${normalizedAddr}`) || localStorage.getItem(`admin_status_${normalizedAddr}`);
+    const savedGeneral = localStorage.getItem(`user_status_${normalizedAddr}`);
     
     const saved = savedRecipient || savedAdmin || savedGeneral;
     return saved ? JSON.parse(saved) : { exists: false, role: 0, domain: "", isVerified: false };
@@ -46,7 +55,7 @@ export const StateContextProvider = ({ children }) => {
     }
   };
 
-  // --- 2. CHECK USER STATUS (LocalStorage, Session, & Contract Sync) ---
+  // --- 2. CHECK USER STATUS (FIRESTORE -> CONTRACT -> LOCALSTORAGE) ---
   const checkUserStatus = useCallback(async () => {
     const currentAddress = address || (typeof window !== 'undefined' && window.ethereum?.selectedAddress);
     if (!currentAddress) {
@@ -56,10 +65,42 @@ export const StateContextProvider = ({ children }) => {
       return;
     }
 
-    // Check Local Storage for both profile keys
-    const savedAdmin = localStorage.getItem(`admin_account_${currentAddress}`) || localStorage.getItem(`admin_status_${currentAddress}`);
-    const savedRecipient = localStorage.getItem(`recipient_account_${currentAddress}`) || localStorage.getItem(`recipient_status_${currentAddress}`);
-    const savedGeneral = localStorage.getItem(`user_status_${currentAddress}`);
+    const normalizedAddr = currentAddress.toLowerCase();
+
+    // STEP A: Try fetching user profile from Firestore first
+    try {
+      const userDocRef = doc(db, 'users', normalizedAddr);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists()) {
+        const firestoreData = userDocSnap.data();
+        const status = {
+          address: currentAddress,
+          role: firestoreData.role,
+          domain: firestoreData.domain || "general",
+          organization: firestoreData.organization || "",
+          isVerified: firestoreData.isVerified ?? true,
+          exists: true
+        };
+
+        if (firestoreData.role === 1 || firestoreData.role === 'admin') {
+          setAdminStatus(status);
+          localStorage.setItem(`admin_status_${normalizedAddr}`, JSON.stringify(status));
+        } else {
+          setRecipientStatus(status);
+          localStorage.setItem(`recipient_status_${normalizedAddr}`, JSON.stringify(status));
+        }
+        setUserStatus(status);
+        return; // Successfully loaded from Firestore
+      }
+    } catch (fsError) {
+      console.warn("Could not fetch user status from Firestore, falling back to local/contract:", fsError);
+    }
+
+    // STEP B: Fallback to LocalStorage
+    const savedAdmin = localStorage.getItem(`admin_account_${normalizedAddr}`) || localStorage.getItem(`admin_status_${normalizedAddr}`);
+    const savedRecipient = localStorage.getItem(`recipient_account_${normalizedAddr}`) || localStorage.getItem(`recipient_status_${normalizedAddr}`);
+    const savedGeneral = localStorage.getItem(`user_status_${normalizedAddr}`);
 
     const parsedAdmin = savedAdmin ? JSON.parse(savedAdmin) : null;
     const parsedRecipient = savedRecipient ? JSON.parse(savedRecipient) : (savedGeneral ? JSON.parse(savedGeneral) : null);
@@ -73,7 +114,7 @@ export const StateContextProvider = ({ children }) => {
       setUserStatus(parsedAdmin);
     }
 
-    // Fallback to Smart Contract if neither local profile is found
+    // STEP C: Fallback to Smart Contract read
     if (contract && !parsedAdmin && !parsedRecipient) {
       try {
         const data = await contract.call('users', [currentAddress]);
@@ -88,10 +129,10 @@ export const StateContextProvider = ({ children }) => {
 
           if (Number(data.role) === 1) {
             setAdminStatus(status);
-            localStorage.setItem(`admin_status_${currentAddress}`, JSON.stringify(status));
+            localStorage.setItem(`admin_status_${normalizedAddr}`, JSON.stringify(status));
           } else {
             setRecipientStatus(status);
-            localStorage.setItem(`recipient_status_${currentAddress}`, JSON.stringify(status));
+            localStorage.setItem(`recipient_status_${normalizedAddr}`, JSON.stringify(status));
           }
           setUserStatus(status);
         }
@@ -101,7 +142,6 @@ export const StateContextProvider = ({ children }) => {
     }
   }, [address, contract]);
 
-  // Sync profile state ONLY when address changes
   useEffect(() => {
     if (address) {
       checkUserStatus();
@@ -110,17 +150,17 @@ export const StateContextProvider = ({ children }) => {
       setRecipientStatus(null);
       setUserStatus({ exists: false, role: 0, domain: "", isVerified: false });
     }
-  }, [address]);
+  }, [address, checkUserStatus]);
 
-  // Fetch live ETH conversion rates on mount safely
+  // Fetch live ETH exchange rates
   useEffect(() => {
     let isMounted = true;
-
     const fetchLiveRates = async () => {
       try {
         const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd,ngn');
-        const data = await response.json();
+        if (!response.ok) return;
         
+        const data = await response.json();
         if (isMounted && data?.ethereum) {
           setEthPrice({
             usd: data.ethereum.usd || 3000,
@@ -133,67 +173,74 @@ export const StateContextProvider = ({ children }) => {
     };
 
     fetchLiveRates();
-
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, []);
 
-  // --- 3. REGISTER USER ---
+  // --- 3. REGISTER USER (SAVING TO FIRESTORE) ---
   const registerUser = async (form) => {
     try {
       setIsLoading(true);
       const isFormAdmin = form.role === 'admin' || form.role === 1;
       const roleNumber = isFormAdmin ? 1 : 0;
       const domain = form.domain || "general";
+      const normalizedAddr = address ? address.toLowerCase() : "";
 
+      // Smart Contract Registration
       if (contract && address) {
         let isAlreadyRegistered = false;
-
         try {
           const existingUser = await contract.call('users', [address]);
           if (existingUser && (existingUser.exists || existingUser.isRegistered)) {
             isAlreadyRegistered = true;
           }
         } catch (readErr) {
-          console.warn("Could not read on-chain user status, proceeding:", readErr);
+          console.warn("Could not check on-chain status, attempting registration write:", readErr);
         }
 
         if (!isAlreadyRegistered) {
           const tx = await contract.call('registerUser', [roleNumber, domain]);
-          console.log("On-chain registration successful", tx);
+          console.log("On-chain registration successful:", tx);
         }
       }
 
       const newUserData = {
-        address,
+        address: normalizedAddr,
         role: roleNumber,
         domain,
         organization: form.organization || "Academic Institution",
         isVerified: true,
         exists: true,
+        createdAt: serverTimestamp()
       };
 
+      // 💾 SAVE TO FIRESTORE
+      if (normalizedAddr) {
+        const userDocRef = doc(db, 'users', normalizedAddr);
+        await setDoc(userDocRef, newUserData, { merge: true });
+        console.log("User profile saved to Firestore successfully!");
+      }
+
+      // 💾 SAVE TO LOCAL STORAGE (as offline fallback)
       if (isFormAdmin) {
-        localStorage.setItem(`admin_status_${address}`, JSON.stringify(newUserData));
-        localStorage.setItem(`admin_account_${address}`, JSON.stringify(newUserData));
-        sessionStorage.setItem(`admin_session_${address}`, 'true');
+        localStorage.setItem(`admin_status_${normalizedAddr}`, JSON.stringify(newUserData));
+        localStorage.setItem(`admin_account_${normalizedAddr}`, JSON.stringify(newUserData));
+        sessionStorage.setItem(`admin_session_${normalizedAddr}`, 'true');
         setAdminStatus(newUserData);
         setActiveRole('admin');
       } else {
-        localStorage.setItem(`recipient_status_${address}`, JSON.stringify(newUserData));
-        localStorage.setItem(`recipient_account_${address}`, JSON.stringify(newUserData));
-        sessionStorage.setItem(`recipient_session_${address}`, 'true');
+        localStorage.setItem(`recipient_status_${normalizedAddr}`, JSON.stringify(newUserData));
+        localStorage.setItem(`recipient_account_${normalizedAddr}`, JSON.stringify(newUserData));
+        sessionStorage.setItem(`recipient_session_${normalizedAddr}`, 'true');
         setRecipientStatus(newUserData);
         setActiveRole('recipient');
       }
 
-      localStorage.setItem(`user_status_${address}`, JSON.stringify(newUserData));
+      localStorage.setItem(`user_status_${normalizedAddr}`, JSON.stringify(newUserData));
       setUserStatus(newUserData);
 
       return newUserData;
     } catch (error) {
-      console.error("Registration failure", error);
+      console.error("Registration failed:", error);
       throw error;
     } finally {
       setIsLoading(false);
@@ -202,17 +249,17 @@ export const StateContextProvider = ({ children }) => {
 
   // --- 4. CREATE CAMPAIGN ---
   const createCampaign = async (form) => {
-    if (!address) return alert("Please connect your wallet");
+    if (!address) return alert("Please connect your wallet first!");
 
     try {
       setIsLoading(true);
       const args = [
-        address,                  // owner
-        form.title,                // title
-        form.description,          // description
-        form.target,               // target in Wei
-        form.deadline,             // deadline in Unix timestamp
-        form.image                 // image URL
+        address,
+        form.title,
+        form.description,
+        form.target,
+        form.deadline,
+        form.image
       ];
 
       let tx;
@@ -220,13 +267,15 @@ export const StateContextProvider = ({ children }) => {
         tx = await createCampaignFn({ args });
       } else if (contract) {
         tx = await contract.call('createCampaign', args);
+      } else {
+        throw new Error("Smart contract connection unavailable.");
       }
 
-      console.log("Campaign created successfully:", tx);
+      console.log("Campaign creation tx success:", tx);
       return tx;
     } catch (error) {
       console.error("Failed to create campaign:", error);
-      throw error; // Re-throw to allow component level alert handling
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -238,9 +287,15 @@ export const StateContextProvider = ({ children }) => {
       if (!contract) return [];
       const campaigns = await contract.call('getCampaigns');
 
-      const parsedCampaigns = campaigns.map((c, i) => {
-        const ethTarget = ethers.utils ? ethers.utils.formatEther(c.target.toString()) : (Number(c.target) / 1e18).toString();
-        const ethAmountCollected = ethers.utils ? ethers.utils.formatEther(c.amountCollected.toString()) : (Number(c.amountCollected) / 1e18).toString();
+      return campaigns.map((c, i) => {
+        const ethTarget = ethers.utils 
+          ? ethers.utils.formatEther(c.target.toString()) 
+          : (Number(c.target) / 1e18).toString();
+
+        const ethAmountCollected = ethers.utils 
+          ? ethers.utils.formatEther(c.amountCollected.toString()) 
+          : (Number(c.amountCollected) / 1e18).toString();
+
         const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'USD';
         const deadlineVal = c.deadline?.toNumber ? c.deadline.toNumber() : Number(c.deadline);
 
@@ -258,10 +313,8 @@ export const StateContextProvider = ({ children }) => {
           rawEthCollected: ethAmountCollected
         };
       });
-
-      return parsedCampaigns;
     } catch (error) {
-      console.error("Failed to fetch or parse campaigns:", error);
+      console.error("Failed to fetch campaigns:", error);
       return [];
     }
   };
@@ -269,14 +322,18 @@ export const StateContextProvider = ({ children }) => {
   // --- 6. FETCH USER SPECIFIC CAMPAIGNS ---
   const getUserCampaigns = async () => {
     const allCampaigns = await getCampaigns();
-    return allCampaigns.filter((campaign) => campaign.owner?.toLowerCase() === address?.toLowerCase());
+    if (!address) return [];
+    return allCampaigns.filter((campaign) => campaign.owner?.toLowerCase() === address.toLowerCase());
   };
 
   // --- 7. DONATE TO CAMPAIGN ---
   const donate = async (pId, amount) => {
     try {
       setIsLoading(true);
-      const weiValue = ethers.utils ? ethers.utils.parseEther(amount.toString()) : ethers.parseEther(amount.toString());
+      const weiValue = ethers.utils 
+        ? ethers.utils.parseEther(amount.toString()) 
+        : ethers.parseEther(amount.toString());
+
       const data = await contract.call('donateToCampaign', [pId], { 
         value: weiValue 
       });
@@ -296,11 +353,13 @@ export const StateContextProvider = ({ children }) => {
       if (!contract) return [];
       const donations = await contract.call('getDonators', [pId]);
       const numberOfDonations = donations[0]?.length || 0;
-
       const parsedDonations = [];
 
-      for(let i = 0; i < numberOfDonations; i++) {
-        const ethAmount = ethers.utils ? ethers.utils.formatEther(donations[1][i].toString()) : (Number(donations[1][i]) / 1e18).toString();
+      for (let i = 0; i < numberOfDonations; i++) {
+        const ethAmount = ethers.utils 
+          ? ethers.utils.formatEther(donations[1][i].toString()) 
+          : (Number(donations[1][i]) / 1e18).toString();
+
         parsedDonations.push({
           donator: donations[0][i],
           donation: ethAmount
@@ -318,10 +377,9 @@ export const StateContextProvider = ({ children }) => {
   const claimRefund = async (pId) => {
     try {
       setIsLoading(true);
-      const data = await contract.call('claimRefund', [pId]);
-      return data;
+      return await contract.call('claimRefund', [pId]);
     } catch (error) {
-      console.error("Refund failed", error);
+      console.error("Refund failed:", error);
       throw error;
     } finally {
       setIsLoading(false);
@@ -332,10 +390,9 @@ export const StateContextProvider = ({ children }) => {
   const withdrawFunds = async (pId) => {
     try {
       setIsLoading(true);
-      const data = await contract.call('withdrawFunds', [pId]);
-      return data;
+      return await contract.call('withdrawFunds', [pId]);
     } catch (error) {
-      console.error("Withdrawal failed", error);
+      console.error("Withdrawal failed:", error);
       throw error;
     } finally {
       setIsLoading(false);
