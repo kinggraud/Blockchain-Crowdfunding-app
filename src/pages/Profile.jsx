@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { DisplayCampaigns } from '../components';
 import { useStateContext } from '../context';
@@ -22,6 +22,7 @@ const Profile = () => {
   // Synchronized persistent state strings
   const [displayedName, setDisplayedName] = useState('');
   const [displayedPic, setDisplayedPic] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const { 
     address, 
@@ -29,33 +30,45 @@ const Profile = () => {
     getUserCampaigns 
   } = useStateContext() || {};
 
-  // Fetch Profile Metadata from Firestore Database
+  // 🚀 REAL-TIME PROFILE & ADMIN SYNC FROM FIRESTORE
   useEffect(() => {
-    const fetchUserProfile = async () => {
-      if (!address) return;
-      
-      try {
-        const userDocRef = doc(db, "users", address.toLowerCase());
-        const docSnap = await getDoc(userDocRef);
+    if (!address) {
+      setDisplayedName('');
+      setDisplayedPic('');
+      setFullName('');
+      setProfilePic('');
+      setIsAdmin(false);
+      return;
+    }
 
+    const formattedAddress = address.toLowerCase();
+    const userDocRef = doc(db, "users", formattedAddress);
+
+    // Listen to real-time changes in Firestore
+    const unsubscribe = onSnapshot(
+      userDocRef,
+      (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
           setDisplayedName(data.fullName || '');
           setDisplayedPic(data.profilePic || '');
           setFullName(data.fullName || '');
           setProfilePic(data.profilePic || '');
+          setIsAdmin(!!data.isAdmin);
         } else {
           setDisplayedName('');
           setDisplayedPic('');
           setFullName('');
           setProfilePic('');
+          setIsAdmin(false);
         }
-      } catch (error) {
-        console.error("Error fetching user profile from Firestore:", error);
+      },
+      (error) => {
+        console.error("Error listening to Firestore user profile:", error);
       }
-    };
+    );
 
-    fetchUserProfile();
+    return () => unsubscribe();
   }, [address]);
 
   // Fetch campaigns associated with connected wallet
@@ -81,8 +94,8 @@ const Profile = () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      alert("This file is too large! Please choose an image smaller than 2MB.");
+    if (file.size > 1 * 1024 * 1024) {
+      alert("Please upload an image smaller than 1MB for smooth database storage.");
       return;
     }
 
@@ -97,22 +110,22 @@ const Profile = () => {
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!fullName.trim()) return alert("Full name cannot be left blank");
+    if (!address) return alert("Wallet not connected!");
 
     try {
       const userDocRef = doc(db, "users", address.toLowerCase());
+      
       await setDoc(userDocRef, {
         fullName: fullName.trim(),
         profilePic: profilePic,
-        walletAddress: address,
+        walletAddress: address.toLowerCase(),
         updatedAt: new Date().toISOString()
       }, { merge: true });
 
-      setDisplayedName(fullName.trim());
-      setDisplayedPic(profilePic);
       setIsProfileModalOpen(false);
     } catch (err) {
       console.error("Error saving profile to Firestore:", err);
-      alert("Failed to save profile. Please check your network connection and try again.");
+      alert("Failed to save profile. Please check your connection and try again.");
     }
   };
 
@@ -195,13 +208,20 @@ const Profile = () => {
         </div>
         
         <div className="flex-1 text-center md:text-left">
-          <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            {displayedName || (
-              <span className="text-slate-400 dark:text-[#4b5264] italic text-lg font-normal">
-                Anonymous User (Click 'Create Profile' to set up your name)
+          <div className="flex items-center justify-center md:justify-start gap-3">
+            <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+              {displayedName || (
+                <span className="text-slate-400 dark:text-[#4b5264] italic text-lg font-normal">
+                  Anonymous User (Click 'Create Profile' to set up your name)
+                </span>
+              )}
+            </h2>
+            {isAdmin && (
+              <span className="px-3 py-1 bg-[#8c6dfd]/20 text-[#8c6dfd] rounded-full text-xs font-bold border border-[#8c6dfd] flex items-center gap-1">
+                🛡️ Admin Verified
               </span>
             )}
-          </h2>
+          </div>
 
           <div className="flex flex-wrap justify-center md:justify-start items-center gap-3 mt-3">
             <button 
@@ -233,8 +253,8 @@ const Profile = () => {
             <h3 className="text-3xl font-black text-[#4acd8d]">{totalETH} ETH</h3>
         </div>
         <div className="p-6 bg-[#8c6dfd] rounded-2xl flex flex-col items-center shadow-lg shadow-[#8c6dfd]/20">
-            <p className="text-white/70 text-[10px] uppercase font-bold tracking-widest mb-2">Database Sync</p>
-            <h3 className="text-3xl font-black text-white">Active</h3>
+            <p className="text-white/70 text-[10px] uppercase font-bold tracking-widest mb-2">Cloud Database</p>
+            <h3 className="text-3xl font-black text-white">Synced</h3>
         </div>
       </div>
 
@@ -253,7 +273,7 @@ const Profile = () => {
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-fade-in">
           <div className="bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] w-full max-w-[500px] p-8 rounded-3xl shadow-2xl">
             <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Configure Profile Identity</h3>
-            <p className="text-slate-400 text-xs mb-6">Save your profile details directly to the database.</p>
+            <p className="text-slate-400 text-xs mb-6">Save your profile details directly to Firestore Cloud Database.</p>
             
             <form onSubmit={handleSaveProfile} className="flex flex-col gap-5">
               <div className="flex flex-col gap-2">
@@ -286,7 +306,7 @@ const Profile = () => {
                       <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
                         Upload Image File
                       </p>
-                      <p className="text-[11px] text-slate-400 mb-3">PNG, JPG, WebP (&lt;2MB)</p>
+                      <p className="text-[11px] text-slate-400 mb-3">PNG, JPG (&lt;1MB)</p>
                       <div className="px-3 py-1.5 bg-[#3a3a43] group-hover:bg-[#8c6dfd] text-white font-medium text-xs rounded-lg transition-colors shadow-sm">
                         Browse Files
                       </div>
@@ -297,7 +317,7 @@ const Profile = () => {
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-sm">🌐</span>
                       <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Or Paste Image Web Link
+                        Or Paste Web Image URL
                       </p>
                     </div>
                     <input 
@@ -322,7 +342,7 @@ const Profile = () => {
                     />
                     <div className="overflow-hidden">
                       <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-                        <span>✅</span> Image Linked
+                        <span>✅</span> Image Ready
                       </p>
                     </div>
                   </div>
@@ -349,7 +369,7 @@ const Profile = () => {
         </div>
       )}
 
-      {/* --- DIALOG MODAL: WALLET ADDRESS DISCOVERY POPUP --- */}
+      {/* --- DIALOG MODAL: WALLET ADDRESS POPUP --- */}
       {isAddressModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] w-full max-w-[450px] p-6 rounded-2xl shadow-2xl text-center">
@@ -374,7 +394,7 @@ const Profile = () => {
                 onClick={() => setIsAddressModalOpen(false)}
                 className="flex-1 py-3 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-sm transition-all cursor-pointer"
               >
-                Close Window
+                Close
               </button>
             </div>
           </div>

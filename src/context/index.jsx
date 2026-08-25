@@ -177,75 +177,76 @@ export const StateContextProvider = ({ children }) => {
   }, []);
 
   // --- 3. REGISTER USER (SAVING TO FIRESTORE) ---
-  const registerUser = async (form) => {
-    try {
-      setIsLoading(true);
-      const isFormAdmin = form.role === 'admin' || form.role === 1;
-      const roleNumber = isFormAdmin ? 1 : 0;
-      const domain = form.domain || "general";
-      const normalizedAddr = address ? address.toLowerCase() : "";
+const registerUser = async (form) => {
+  try {
+    setIsLoading(true);
+    const isFormAdmin = form.role === 'admin' || form.role === 1;
+    const roleNumber = isFormAdmin ? 1 : 0;
+    const domain = form.domain || "general";
+    const normalizedAddr = address ? address.toLowerCase() : "";
 
-      // Smart Contract Registration
-      if (contract && address) {
-        let isAlreadyRegistered = false;
-        try {
-          const existingUser = await contract.call('users', [address]);
-          if (existingUser && (existingUser.exists || existingUser.isRegistered)) {
-            isAlreadyRegistered = true;
-          }
-        } catch (readErr) {
-          console.warn("Could not check on-chain status, attempting registration write:", readErr);
+    // Smart Contract Registration
+    if (contract && address) {
+      let isAlreadyRegistered = false;
+      try {
+        const existingUser = await contract.call('users', [address]);
+        if (existingUser && (existingUser.exists || existingUser.isRegistered)) {
+          isAlreadyRegistered = true;
         }
-
-        if (!isAlreadyRegistered) {
-          const tx = await contract.call('registerUser', [roleNumber, domain]);
-          console.log("On-chain registration successful:", tx);
-        }
+      } catch (readErr) {
+        console.warn("Could not check on-chain status, attempting registration write:", readErr);
       }
 
-      const newUserData = {
-        address: normalizedAddr,
-        role: roleNumber,
-        domain,
-        organization: form.organization || "Academic Institution",
-        isVerified: true,
-        exists: true,
-        createdAt: serverTimestamp()
-      };
-
-      // 💾 SAVE TO FIRESTORE
-      if (normalizedAddr) {
-        const userDocRef = doc(db, 'users', normalizedAddr);
-        await setDoc(userDocRef, newUserData, { merge: true });
-        console.log("User profile saved to Firestore successfully!");
+      if (!isAlreadyRegistered) {
+        const tx = await contract.call('registerUser', [roleNumber, domain]);
+        console.log("On-chain registration successful:", tx);
       }
-
-      // 💾 SAVE TO LOCAL STORAGE (as offline fallback)
-      if (isFormAdmin) {
-        localStorage.setItem(`admin_status_${normalizedAddr}`, JSON.stringify(newUserData));
-        localStorage.setItem(`admin_account_${normalizedAddr}`, JSON.stringify(newUserData));
-        sessionStorage.setItem(`admin_session_${normalizedAddr}`, 'true');
-        setAdminStatus(newUserData);
-        setActiveRole('admin');
-      } else {
-        localStorage.setItem(`recipient_status_${normalizedAddr}`, JSON.stringify(newUserData));
-        localStorage.setItem(`recipient_account_${normalizedAddr}`, JSON.stringify(newUserData));
-        sessionStorage.setItem(`recipient_session_${normalizedAddr}`, 'true');
-        setRecipientStatus(newUserData);
-        setActiveRole('recipient');
-      }
-
-      localStorage.setItem(`user_status_${normalizedAddr}`, JSON.stringify(newUserData));
-      setUserStatus(newUserData);
-
-      return newUserData;
-    } catch (error) {
-      console.error("Registration failed:", error);
-      throw error;
-    } finally {
-      setIsLoading(false);
     }
-  };
+
+    const newUserData = {
+      address: normalizedAddr,
+      role: roleNumber,
+      isAdmin: isFormAdmin, // 👈 ADDED: Explicit boolean for Profile.jsx Admin badge
+      domain,
+      organization: form.organization || "Academic Institution",
+      isVerified: true,
+      exists: true,
+      createdAt: serverTimestamp()
+    };
+
+    // 💾 SAVE TO FIRESTORE
+    if (normalizedAddr) {
+      const userDocRef = doc(db, 'users', normalizedAddr);
+      await setDoc(userDocRef, newUserData, { merge: true });
+      console.log("User profile saved to Firestore successfully!");
+    }
+
+    // 💾 SAVE TO LOCAL STORAGE (as offline fallback)
+    if (isFormAdmin) {
+      localStorage.setItem(`admin_status_${normalizedAddr}`, JSON.stringify(newUserData));
+      localStorage.setItem(`admin_account_${normalizedAddr}`, JSON.stringify(newUserData));
+      sessionStorage.setItem(`admin_session_${normalizedAddr}`, 'true');
+      setAdminStatus(newUserData);
+      setActiveRole('admin');
+    } else {
+      localStorage.setItem(`recipient_status_${normalizedAddr}`, JSON.stringify(newUserData));
+      localStorage.setItem(`recipient_account_${normalizedAddr}`, JSON.stringify(newUserData));
+      sessionStorage.setItem(`recipient_session_${normalizedAddr}`, 'true');
+      setRecipientStatus(newUserData);
+      setActiveRole('recipient');
+    }
+
+    localStorage.setItem(`user_status_${normalizedAddr}`, JSON.stringify(newUserData));
+    setUserStatus(newUserData);
+
+    return newUserData;
+  } catch (error) {
+    console.error("Registration failed:", error);
+    throw error;
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   // --- 4. CREATE CAMPAIGN ---
   const createCampaign = async (form) => {

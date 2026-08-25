@@ -104,7 +104,7 @@ const AdminProfile = () => {
         console.error("Error verifying admin status from Firestore:", error);
         setIsRegisteredAdmin(false);
         setIsAuthenticatedAdmin(false);
-      } font-epilogue; {
+      } "font-epilogue"; {
         setIsLoadingAuth(false);
       }
     };
