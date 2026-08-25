@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStateContext } from '../context';
 import SignupModal from './SignupModal'; // Adjust import path if needed
@@ -14,43 +14,60 @@ const AdminGuard = ({ children }) => {
 
   const [isModalOpen, setIsModalOpen] = useState(true);
 
-  // 1. Loading state spinner while fetching wallet or on-chain status
+  // Safely handle navigation side-effects
+  useEffect(() => {
+    if (!isLoadingUserStatus && !address) {
+      navigate('/home');
+    }
+  }, [address, isLoadingUserStatus, navigate]);
+
+  // 1. Loading spinner while checking wallet & on-chain state
   if (isLoadingUserStatus) {
     return (
       <div className="flex items-center justify-center min-h-[70vh]">
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-3 font-epilogue">
           <div className="w-10 h-10 border-4 border-[#8c6dfd] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-[#808191] font-epilogue">Verifying Admin Permissions...</p>
+          <p className="text-sm text-[#808191]">Verifying Admin Permissions...</p>
         </div>
       </div>
     );
   }
 
-  // 2. No wallet connected -> Return to home
-  if (!address) {
-    navigate('/home');
-    return null;
-  }
+  // 2. Return null if no address while useEffect completes redirect
+  if (!address) return null;
 
-  // 3. Retrieve local storage admin record (Fallback for client-side registration)
-  const storedAdmin = localStorage.getItem(`admin_account_${address}`);
+  // 3. Lowercase normalization for local storage lookups
+  const normalizedAddr = address.toLowerCase();
+  const storedAdmin = 
+    localStorage.getItem(`admin_account_${normalizedAddr}`) || 
+    localStorage.getItem(`admin_status_${normalizedAddr}`);
   const localAdminRecord = storedAdmin ? JSON.parse(storedAdmin) : null;
 
-  // 4. Multi-level admin validation check
+  // 4. Robust Admin Evaluation Check
   const isAdmin = 
-    userStatus === 'admin' || 
+    // Check object fields from index.jsx state context
+    userStatus?.role === 1 ||
+    userStatus?.role === '1' ||
+    userStatus?.isAdmin === true ||
+    userStatus?.role === 'admin' ||
+    userStatus === 'admin' ||
+    
+    // Check adminStatus state
     adminStatus?.isAdmin === true || 
     adminStatus?.role === 1 || 
     adminStatus?.role === '1' ||
+
+    // Check LocalStorage fallbacks
     localAdminRecord?.role === 1 || 
+    localAdminRecord?.role === '1' ||
     localAdminRecord?.isAdmin === true;
 
-  // Render protected content if any admin criteria is met
+  // If validation passes, render protected child route
   if (isAdmin) {
     return children;
   }
 
-  // 5. Connected but NOT Admin -> Force open SignupModal immediately
+  // 5. Fallback UI when connected wallet is NOT an admin
   return (
     <div className="min-h-screen bg-[#13131a] flex flex-col items-center justify-center p-4 font-epilogue">
       <div className="text-center space-y-4 max-w-[400px]">
@@ -75,9 +92,8 @@ const AdminGuard = ({ children }) => {
         defaultStep="admin-domain"
         onClose={() => {
           setIsModalOpen(false);
-          // Re-check local storage or context before redirecting to prevent unexpected kick-outs
-          const updatedLocal = localStorage.getItem(`admin_account_${address}`);
-          if (userStatus !== 'admin' && !updatedLocal) {
+          const updatedLocal = localStorage.getItem(`admin_account_${normalizedAddr}`);
+          if (!updatedLocal && userStatus?.role !== 1) {
             navigate('/home');
           }
         }}
