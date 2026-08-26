@@ -7,15 +7,14 @@ export default defineConfig({
   plugins: [
     react(),
     nodePolyfills({
-      // 🔍 This will inject a safe global object variable at runtime 
-      // WITHOUT breaking Thirdweb's internal function parameter text strings.
+      // Inject global object at runtime without breaking Thirdweb string parsing
       globals: {
         global: true,
       },
       protocolImports: true, 
     }),
   ],
-  // 🔍 CRITICAL FIX: Delete the define block completely so it stops rewriting internal function names!
+  // Stop define block from rewriting internal Thirdweb function parameters
   define: {},
   build: {
     rollupOptions: {

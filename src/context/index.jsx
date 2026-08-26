@@ -3,7 +3,7 @@ import { useAddress, useContract, useContractWrite, useConnect, useDisconnect, m
 import { ethers } from 'ethers';
 
 // 1. IMPORT FIRESTORE FUNCTIONS & YOUR FIREBASE DB INSTANCE
-import { db } from "../firebase"; // Adjust this path if your firebase config is stored elsewhere
+import { db } from "../firebase";
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const StateContext = createContext();
@@ -176,90 +176,112 @@ export const StateContextProvider = ({ children }) => {
     return () => { isMounted = false; };
   }, []);
 
-  // --- 3. REGISTER USER (SAVING TO FIRESTORE) ---
-const registerUser = async (form) => {
-  try {
-    setIsLoading(true);
-    const isFormAdmin = form.role === 'admin' || form.role === 1;
-    const roleNumber = isFormAdmin ? 1 : 0;
-    const domain = form.domain || "general";
-    const normalizedAddr = address ? address.toLowerCase() : "";
+  // --- 3. REGISTER USER (SAVING TO FIRESTORE + ENVIRONMENTS) ---
+  const registerUser = async (form) => {
+    try {
+      setIsLoading(true);
+      const isFormAdmin = form.role === 'admin' || form.role === 1;
+      const roleNumber = isFormAdmin ? 1 : 0;
+      const domain = form.domain ? form.domain.trim() : "general";
+      const normalizedAddr = address ? address.toLowerCase() : "";
 
-    // Smart Contract Registration
-    if (contract && address) {
-      let isAlreadyRegistered = false;
-      try {
-        const existingUser = await contract.call('users', [address]);
-        if (existingUser && (existingUser.exists || existingUser.isRegistered)) {
-          isAlreadyRegistered = true;
+      // Smart Contract Registration
+      if (contract && address) {
+        let isAlreadyRegistered = false;
+        try {
+          const existingUser = await contract.call('users', [address]);
+          if (existingUser && (existingUser.exists || existingUser.isRegistered)) {
+            isAlreadyRegistered = true;
+          }
+        } catch (readErr) {
+          console.warn("Could not check on-chain status, attempting registration write:", readErr);
         }
-      } catch (readErr) {
-        console.warn("Could not check on-chain status, attempting registration write:", readErr);
+
+        if (!isAlreadyRegistered) {
+          const tx = await contract.call('registerUser', [roleNumber, domain]);
+          console.log("On-chain registration successful:", tx);
+        }
       }
 
-      if (!isAlreadyRegistered) {
-        const tx = await contract.call('registerUser', [roleNumber, domain]);
-        console.log("On-chain registration successful:", tx);
+      const newUserData = {
+        address: normalizedAddr,
+        role: roleNumber,
+        isAdmin: isFormAdmin,
+        domain,
+        organization: form.organization || "Academic Institution",
+        isVerified: true,
+        exists: true,
+        createdAt: serverTimestamp()
+      };
+
+      // 💾 SAVE TO FIRESTORE USERS
+      if (normalizedAddr) {
+        const userDocRef = doc(db, 'users', normalizedAddr);
+        await setDoc(userDocRef, newUserData, { merge: true });
+
+        // 💾 SAVE ADMIN ENVIRONMENT TO FIRESTORE (Global collection for cross-device retrieval)
+        if (isFormAdmin && domain) {
+          const envDocRef = doc(db, 'environments', domain.toLowerCase());
+          await setDoc(envDocRef, {
+            name: domain,
+            createdBy: normalizedAddr,
+            organization: form.organization || "Academic Institution",
+            createdAt: serverTimestamp()
+          }, { merge: true });
+        }
       }
+
+      // 💾 SAVE TO LOCAL STORAGE
+      if (isFormAdmin) {
+        localStorage.setItem(`admin_status_${normalizedAddr}`, JSON.stringify(newUserData));
+        localStorage.setItem(`admin_account_${normalizedAddr}`, JSON.stringify(newUserData));
+        sessionStorage.setItem(`admin_session_${normalizedAddr}`, 'true');
+        setAdminStatus(newUserData);
+        setActiveRole('admin');
+      } else {
+        localStorage.setItem(`recipient_status_${normalizedAddr}`, JSON.stringify(newUserData));
+        localStorage.setItem(`recipient_account_${normalizedAddr}`, JSON.stringify(newUserData));
+        sessionStorage.setItem(`recipient_session_${normalizedAddr}`, 'true');
+        setRecipientStatus(newUserData);
+        setActiveRole('recipient');
+      }
+
+      localStorage.setItem(`user_status_${normalizedAddr}`, JSON.stringify(newUserData));
+      setUserStatus(newUserData);
+
+      return newUserData;
+    } catch (error) {
+      console.error("Registration failed:", error);
+      throw error;
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    const newUserData = {
-      address: normalizedAddr,
-      role: roleNumber,
-      isAdmin: isFormAdmin, // 👈 ADDED: Explicit boolean for Profile.jsx Admin badge
-      domain,
-      organization: form.organization || "Academic Institution",
-      isVerified: true,
-      exists: true,
-      createdAt: serverTimestamp()
-    };
-
-    // 💾 SAVE TO FIRESTORE
-    if (normalizedAddr) {
-      const userDocRef = doc(db, 'users', normalizedAddr);
-      await setDoc(userDocRef, newUserData, { merge: true });
-      console.log("User profile saved to Firestore successfully!");
-    }
-
-    // 💾 SAVE TO LOCAL STORAGE (as offline fallback)
-    if (isFormAdmin) {
-      localStorage.setItem(`admin_status_${normalizedAddr}`, JSON.stringify(newUserData));
-      localStorage.setItem(`admin_account_${normalizedAddr}`, JSON.stringify(newUserData));
-      sessionStorage.setItem(`admin_session_${normalizedAddr}`, 'true');
-      setAdminStatus(newUserData);
-      setActiveRole('admin');
-    } else {
-      localStorage.setItem(`recipient_status_${normalizedAddr}`, JSON.stringify(newUserData));
-      localStorage.setItem(`recipient_account_${normalizedAddr}`, JSON.stringify(newUserData));
-      sessionStorage.setItem(`recipient_session_${normalizedAddr}`, 'true');
-      setRecipientStatus(newUserData);
-      setActiveRole('recipient');
-    }
-
-    localStorage.setItem(`user_status_${normalizedAddr}`, JSON.stringify(newUserData));
-    setUserStatus(newUserData);
-
-    return newUserData;
-  } catch (error) {
-    console.error("Registration failed:", error);
-    throw error;
-  } finally {
-    setIsLoading(false);
-  }
-};
-
-  // --- 4. CREATE CAMPAIGN ---
+  // --- 4. CREATE CAMPAIGN (WITH MILLISECOND TO SECOND UNIX CONVERSION) ---
   const createCampaign = async (form) => {
     if (!address) return alert("Please connect your wallet first!");
 
     try {
       setIsLoading(true);
+
+      // Convert Date string/timestamp to EVM seconds format
+      let parsedDeadline = new Date(form.deadline).getTime();
+      if (parsedDeadline > 1e11) {
+        parsedDeadline = Math.floor(parsedDeadline / 1000); // 👈 Fixes contract execution revert
+      }
+
+      // Convert target to Wei if it is passed in standard ETH string/number
+      const targetInWei = ethers.utils 
+        ? ethers.utils.parseEther(form.target.toString()) 
+        : ethers.parseEther(form.target.toString());
+
       const args = [
         address,
         form.title,
         form.description,
-        form.target,
-        form.deadline,
+        targetInWei,
+        parsedDeadline,
         form.image
       ];
 
@@ -298,7 +320,12 @@ const registerUser = async (form) => {
           : (Number(c.amountCollected) / 1e18).toString();
 
         const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'USD';
-        const deadlineVal = c.deadline?.toNumber ? c.deadline.toNumber() : Number(c.deadline);
+        
+        let deadlineVal = c.deadline?.toString ? Number(c.deadline.toString()) : Number(c.deadline);
+        // Normalize seconds back to milliseconds for UI JS Date rendering if necessary
+        if (deadlineVal < 1e11) {
+          deadlineVal = deadlineVal * 1000;
+        }
 
         return {
           owner: c.owner,

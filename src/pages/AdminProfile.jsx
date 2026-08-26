@@ -48,69 +48,81 @@ const AdminProfile = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [deployingId, setDeployingId] = useState(null);
 
-  // Sync Admin Status with Firestore whenever connected address changes
-  useEffect(() => {
-    const verifyAdminAndLoadData = async () => {
-      if (!address) {
-        setIsRegisteredAdmin(false);
-        setIsAuthenticatedAdmin(false);
-        setIsLoadingAuth(false);
-        return;
+// 1. FIXED: Clean Sync between Active Connected Wallet & Firestore
+useEffect(() => {
+  const verifyAdminAndLoadData = async () => {
+    if (!address) {
+      setIsRegisteredAdmin(false);
+      setIsAuthenticatedAdmin(false);
+      setIsLoadingAuth(false);
+      return;
+    }
+
+    setIsLoadingAuth(true);
+    const normalizedAddress = address.toLowerCase();
+
+    try {
+      // Step A: Fetch User Profile from Firestore
+      const userDocRef = doc(db, 'users', normalizedAddress);
+      const userSnap = await getDoc(userDocRef);
+
+      let adminData = null;
+
+      if (userSnap.exists()) {
+        const data = userSnap.data();
+        if (data.role === 'admin' || data.role === 1 || data.role === '1' || data.isAdmin) {
+          adminData = data;
+        }
       }
 
-      setIsLoadingAuth(true);
-      const normalizedAddress = address.toLowerCase();
-
-      try {
-        // 1. Check user profile in Firestore
-        const userDocRef = doc(db, 'users', normalizedAddress);
-        const userSnap = await getDoc(userDocRef);
-
-        let adminData = null;
-
-        if (userSnap.exists()) {
-          const data = userSnap.data();
+      // Alternative Lookup: Check walletAddress field fallback
+      if (!adminData) {
+        const q = query(collection(db, 'users'), where('walletAddress', '==', normalizedAddress));
+        const querySnap = await getDocs(q);
+        if (!querySnap.empty) {
+          const data = querySnap.docs[0].data();
           if (data.role === 'admin' || data.role === 1 || data.role === '1' || data.isAdmin) {
             adminData = data;
           }
         }
+      }
 
-        // Alternative lookup: Query users collection by walletAddress field if document key is not address
-        if (!adminData) {
-          const q = query(collection(db, 'users'), where('walletAddress', '==', normalizedAddress));
-          const querySnap = await getDocs(q);
-          if (!querySnap.empty) {
-            const data = querySnap.docs[0].data();
-            if (data.role === 'admin' || data.role === 1 || data.role === '1' || data.isAdmin) {
-              adminData = data;
-            }
-          }
-        }
-
-        if (adminData) {
-          setIsRegisteredAdmin(true);
-          setIsAuthenticatedAdmin(true); // Automatically authenticated via active MetaMask session
-          setCurrentAdmin(adminData);
-          if (setAdminStatus) setAdminStatus(adminData);
-        } else {
-          setIsRegisteredAdmin(false);
-          setIsAuthenticatedAdmin(false);
-        }
-
-        // 2. Fetch Environments and Submissions from Firestore
-        await loadEnvironmentsAndSubmissions(normalizedAddress);
-
-      } catch (error) {
-        console.error("Error verifying admin status from Firestore:", error);
+      if (adminData) {
+        setIsRegisteredAdmin(true);
+        setIsAuthenticatedAdmin(true);
+        setCurrentAdmin(adminData);
+        if (setAdminStatus) setAdminStatus(adminData);
+      } else {
         setIsRegisteredAdmin(false);
         setIsAuthenticatedAdmin(false);
-      } "font-epilogue"; {
-        setIsLoadingAuth(false);
       }
-    };
 
-    verifyAdminAndLoadData();
-  }, [address]);
+      // Step B: Load Admin-Specific Collections from Firestore
+      await loadEnvironmentsAndSubmissions(normalizedAddress);
+
+    } catch (error) {
+      console.error("Error verifying admin status from Firestore:", error);
+      setIsRegisteredAdmin(false);
+      setIsAuthenticatedAdmin(false);
+    } finally {
+      setIsLoadingAuth(false); // Clean termination without syntax errors
+    }
+  };
+
+  verifyAdminAndLoadData();
+}, [address]);
+
+// 2. ADDED: Delete Environment directly from Firestore
+const handleDeleteEnvironment = async (envId) => {
+  if (!window.confirm("Are you sure you want to delete this environment template?")) return;
+  try {
+    await deleteDoc(doc(db, "admin_environments", envId));
+    await loadEnvironmentsAndSubmissions(address.toLowerCase());
+  } catch (error) {
+    console.error("Failed to delete environment:", error);
+    alert("Failed to delete environment from Firestore.");
+  }
+};
 
   const loadEnvironmentsAndSubmissions = async (adminAddr) => {
     const targetAddress = (adminAddr || address)?.toLowerCase();
@@ -554,39 +566,48 @@ const AdminProfile = () => {
       </div>
 
       {/* ACTIVE ENVIRONMENT LIST */}
-      <div className="w-full bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-3xl p-6 sm:p-8 shadow-xl">
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Configured Verification Environments</h2>
-        <p className="text-xs text-slate-400 mb-6">Share environment links so users can register and submit projects for review.</p>
+        <div className="w-full bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-3xl p-6 sm:p-8 shadow-xl">
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Configured Verification Environments</h2>
+          <p className="text-xs text-slate-400 mb-6">Share environment links so users can register and submit projects for review.</p>
 
-        {environments.length === 0 ? (
-          <div className="p-8 text-center bg-slate-50 dark:bg-[#13131a] rounded-2xl border border-dashed border-slate-200 dark:border-[#3a3a43]">
-            <p className="text-sm text-slate-500 dark:text-[#808191]">No environments created yet.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {environments.map((env) => (
-              <div key={env.id} className="p-5 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">{env.title}</h3>
-                  <p className="text-xs text-slate-500 dark:text-[#808191] mt-1">{env.description || "No description provided."}</p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="text-[10px] font-bold px-2.5 py-1 bg-[#8c6dfd]/10 text-[#8c6dfd] rounded-lg">
-                      {env.customQuestions?.length || 0} Dynamic Field(s)
-                    </span>
+          {environments.length === 0 ? (
+            <div className="p-8 text-center bg-slate-50 dark:bg-[#13131a] rounded-2xl border border-dashed border-slate-200 dark:border-[#3a3a43]">
+              <p className="text-sm text-slate-500 dark:text-[#808191]">No environments created yet.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {environments.map((env, index) => (
+                <div key={env.id || index} className="p-5 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">{env.title}</h3>
+                    <p className="text-xs text-slate-500 dark:text-[#808191] mt-1">{env.description || "No description provided."}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-[10px] font-bold px-2.5 py-1 bg-[#8c6dfd]/10 text-[#8c6dfd] rounded-lg">
+                        {env.customQuestions?.length || 0} Dynamic Field(s)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end sm:self-center">
+                    <button
+                      onClick={() => handleDeleteEnvironment(env.id)}
+                      className="p-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                      title="Delete Environment"
+                    >
+                      🗑️
+                    </button>
+                    <button
+                      onClick={() => navigate(`/create-campaign?envId=${env.id}`, { state: { environment: env } })}
+                      className="px-5 py-3 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-xs transition-all shadow-md cursor-pointer whitespace-nowrap"
+                    >
+                      🔗 Open User Form Link
+                    </button>
                   </div>
                 </div>
-
-                <button
-                  onClick={() => navigate(`/create-campaign?envId=${env.id}`, { state: { environment: env } })}
-                  className="px-5 py-3 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-xs transition-all shadow-md cursor-pointer whitespace-nowrap"
-                >
-                  🔗 Open User Form Link
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </div>
 
     </div>
   );

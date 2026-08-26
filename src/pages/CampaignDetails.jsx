@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
-import { useAddress, useConnect, embeddedWallet, ConnectEmbed } from '@thirdweb-dev/react';
+import { useAddress, ConnectEmbed } from '@thirdweb-dev/react';
 
 import { useStateContext } from '../context';
 import { CustomButton, Loader } from '../components';
@@ -15,7 +15,6 @@ const CampaignDetails = () => {
   const { state } = useLocation();
   const navigate = useNavigate();
   const address = useAddress();
-  const connect = useConnect();
 
   const { donate, getDonations, contract, claimRefund, withdrawFunds } = useStateContext();
 
@@ -86,18 +85,11 @@ const CampaignDetails = () => {
     if (contract) fetchDonors();
   }, [contract, address]);
 
-  // Handle Wallet Connection / Embedded Wallet Provisioning
-  const ensureWalletConnected = async () => {
+  // Handle Wallet Connection Check
+  const ensureWalletConnected = () => {
     if (!address) {
-      try {
-        const config = embeddedWallet();
-        await connect(config);
-        return true;
-      } catch (err) {
-        console.error("Wallet connection/creation failed:", err);
-        alert("Wallet login or creation was cancelled.");
-        return false;
-      }
+      alert("Please connect your wallet first using the connection modal.");
+      return false;
     }
     return true;
   };
@@ -110,9 +102,8 @@ const CampaignDetails = () => {
 
     if (!displayAmount || parseFloat(displayAmount) <= 0) return alert("Enter a valid amount");
 
-    // Auto-create / verify embedded wallet before triggering transaction
-    const isConnected = await ensureWalletConnected();
-    if (!isConnected) return;
+    // Verify wallet before triggering transaction
+    if (!ensureWalletConnected()) return;
 
     // Automatically convert current fiat input value down into real-time ETH representation string
     const ethEquivalentToSend = convertToEth(displayAmount, campaignCurrency);
@@ -212,7 +203,7 @@ const CampaignDetails = () => {
               </div>
             </div>
 
-            {/* PAYMENT MODE TOGGLE (Direct Crypto vs Thirdweb Card / Bank On-Ramp) */}
+            {/* PAYMENT MODE TOGGLE */}
             {!isCampaignEnded && (
               <div className="flex gap-2 mb-4 bg-slate-100 dark:bg-[#2c2f36] p-1 rounded-xl text-xs font-bold">
                 <button
@@ -220,7 +211,7 @@ const CampaignDetails = () => {
                   onClick={() => setPayWithCard(false)}
                   className={`flex-1 py-2 rounded-lg transition-all ${!payWithCard ? 'bg-[#8c6dfd] text-white shadow' : 'text-slate-500'}`}
                 >
-                  ⚡ Direct / Auto-Wallet
+                  ⚡ Direct / Web3 Wallet
                 </button>
                 <button
                   type="button"
@@ -234,7 +225,6 @@ const CampaignDetails = () => {
 
             {!payWithCard ? (
               <>
-                {/* Captures local pricing natively */}
                 <div className="relative flex items-center">
                   <span className="absolute left-4 font-bold text-slate-400 text-[18px]">{symbol}</span>
                   <input 
@@ -258,6 +248,16 @@ const CampaignDetails = () => {
                   </p>
                 )}
 
+                {!address && !isCampaignEnded && (
+                  <div className="mt-4">
+                    <ConnectEmbed
+                      theme="dark"
+                      modalTitle="Connect Wallet to Donate"
+                      className="!w-full"
+                    />
+                  </div>
+                )}
+
                 <button
                   type="button"
                   disabled={isCampaignEnded}
@@ -277,7 +277,7 @@ const CampaignDetails = () => {
                 {!address ? (
                   <div className="flex flex-col items-center">
                     <p className="text-xs text-slate-400 mb-3 text-center">
-                      Step 1: Connect or sign in with email to create your wallet destination.
+                      Step 1: Sign in with your wallet or email to continue.
                     </p>
                     <ConnectEmbed
                       theme="dark"
@@ -288,7 +288,7 @@ const CampaignDetails = () => {
                 ) : (
                   <div className="flex flex-col gap-3">
                     <p className="text-xs text-slate-400 text-center">
-                      Step 2: Enter amount to buy via Credit Card / Debit Card / Apple Pay and donate directly to this smart contract.
+                      Step 2: Enter amount in {campaignCurrency} and complete transaction below.
                     </p>
 
                     <div className="relative flex items-center">
@@ -308,20 +308,12 @@ const CampaignDetails = () => {
                       </p>
                     )}
 
-                    {/* Integrated Thirdweb On-Ramp Connect & Buy Embed */}
-                    <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-[#3a3a43] p-2 bg-slate-900">
-                      <ConnectEmbed
-                        theme="dark"
-                        modalTitle="Thirdweb Card & Bank Checkout"
-                      />
-                    </div>
-
                     <button
                       type="button"
                       onClick={handleDonate}
                       className="w-full py-4 mt-2 bg-[#1dc071] hover:bg-[#1bb067] rounded-xl font-bold text-white transition-all shadow-lg"
                     >
-                      Complete Smart Contract Funding ({symbol}{displayAmount || '0'})
+                      Complete Smart Contract Funding ({symbol}${displayAmount || '0'})
                     </button>
                   </div>
                 )}
@@ -340,8 +332,7 @@ const CampaignDetails = () => {
                   title="Claim My Refund"
                   styles="bg-[#ff4444] w-full text-white"
                   handleClick={async () => {
-                    const isConnected = await ensureWalletConnected();
-                    if (!isConnected) return;
+                    if (!ensureWalletConnected()) return;
 
                     setIsLoading(true);
                     try {
@@ -375,6 +366,7 @@ const CampaignDetails = () => {
                       navigate('/');
                     } catch (err) {
                       console.error("Withdrawal failed:", err);
+                      alert("Withdrawal failed. Deadline may not have passed or you may not be the campaign owner.");
                     } finally {
                       setIsLoading(false);
                     }

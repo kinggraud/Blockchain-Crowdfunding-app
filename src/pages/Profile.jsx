@@ -158,7 +158,7 @@ const Profile = () => {
   }).length;
 
   const endedCount = campaigns.length - activeCount;
-  const totalETH = campaigns.reduce((acc, item) => acc + formatToEth(item.amountCollected), 0).toFixed(2);
+  const totalETH = campaigns.reduce((acc, item) => acc + formatToEth(item.amountCollected), 0).toFixed(7);
 
   // -------------------------------------------------------------------
   // GUARD STATE: WALLET NOT CONNECTED
