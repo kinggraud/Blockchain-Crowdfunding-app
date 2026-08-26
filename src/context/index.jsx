@@ -356,25 +356,50 @@ export const StateContextProvider = ({ children }) => {
 
   // --- 7. DONATE TO CAMPAIGN ---
   const donate = async (pId, amount) => {
-    try {
-      setIsLoading(true);
-      const weiValue = ethers.utils 
-        ? ethers.utils.parseEther(amount.toString()) 
-        : ethers.parseEther(amount.toString());
+  try {
+    setIsLoading(true);
+    const weiValue = ethers.utils 
+      ? ethers.utils.parseEther(amount.toString()) 
+      : ethers.parseEther(amount.toString());
 
-      const data = await contract.call('donateToCampaign', [pId], { 
-        value: weiValue 
+    const data = await contract.call('donateToCampaign', [pId], { 
+      value: weiValue 
+    });
+
+    return data;
+  } catch (error) {
+    console.error("Donation failed:", error);
+
+    // Intercept embedded wallet key share decryption errors
+    const errorMsg = error?.message || error?.toString() || '';
+    if (
+      errorMsg.includes("Missing recovery share") || 
+      errorMsg.includes("recovery share") ||
+      errorMsg.includes("Key share")
+    ) {
+      alert("Embedded wallet session expired or lost sync. Clearing local session so you can re-authenticate.");
+      
+      // Clear corrupt Thirdweb embedded wallet key shares from local storage
+      Object.keys(localStorage).forEach((key) => {
+        if (
+          key.includes("thirdweb") || 
+          key.includes("paper") || 
+          key.includes("embedded_wallet") ||
+          key.includes("tw_")
+        ) {
+          localStorage.removeItem(key);
+        }
       });
 
-      return data;
-    } catch (error) {
-      console.error("Donation failed:", error);
-      throw error;
-    } finally {
-      setIsLoading(false);
+      // Reload window to force fresh embedded wallet initialization
+      window.location.reload();
     }
-  };
 
+    throw error;
+  } finally {
+    setIsLoading(false);
+  }
+};
   // --- 8. GET DONATIONS HISTORY ---
   const getDonations = async (pId) => {
     try {

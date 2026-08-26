@@ -86,6 +86,7 @@ const Sidebar = () => {
     if (path === '/home') return 'dashboard';
     if (path === '/create-campaign') return 'campaign';
     if (path === '/profile') return 'profile'; 
+    if (path === '/admin' || path === '/admin-configuration' || path === '/admin-profile') return 'admin';
     if (path === '/logout') return 'logout';
     
     return 'dashboard'; 

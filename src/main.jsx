@@ -18,16 +18,15 @@ root.render(
     clientId="2446c2c49acf821609d20f92435a8c7f"
     supportedWallets={[
       embeddedWallet({
-        authOptions: ["email", "google", "apple"], 
         auth: {
-        mode: "redirect",
-      },// 👈 Fixes SDK parameter parsing issue
+          options: ["email", "google", "apple"], 
+        },
       }),
       metamaskWallet({
         recommended: true,
       }),
     ]}
-    autoConnect={true} // 👈 Critical: Enables SDK to load key recovery shares after OAuth redirect
+    autoConnect={true}
     dAppMeta={{
       name: "My Crowdfunding App",
       description: "Final Year Project",

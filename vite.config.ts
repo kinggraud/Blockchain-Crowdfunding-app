@@ -14,6 +14,13 @@ export default defineConfig({
       protocolImports: true, 
     }),
   ],
+  // Configure dev server security headers for Google OAuth popups
+  server: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+      "Cross-Origin-Embedder-Policy": "unsafe-none",
+    },
+  },
   // Stop define block from rewriting internal Thirdweb function parameters
   define: {},
   build: {
