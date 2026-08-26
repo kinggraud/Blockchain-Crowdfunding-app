@@ -22,8 +22,8 @@ const root = ReactDOM.createRoot(document.getElementById('root'));
 
 root.render(
   <ThirdwebProvider 
-    activeChain={Sepolia}
-    supportedChains={[Sepolia]}
+    activeChain={customSepolia}
+    supportedChains={[customSepolia]}
     clientId="2446c2c49acf821609d20f92435a8c7f"
     supportedWallets={[
       embeddedWallet({
