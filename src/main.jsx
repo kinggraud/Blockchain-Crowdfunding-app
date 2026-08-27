@@ -9,21 +9,15 @@ import ScrollToTop from './utils/ScrollToTop';
 import App from './App';
 import './index.css';
 
-const customSepolia = {
-  ...Sepolia,
-  rpc: [
-    "https://rpc.ankr.com/eth_sepolia",
-    "https://ethereum-sepolia-rpc.publicnode.com",
-    "https://sepolia.gateway.tenderly.co",
-  ],
-};
+
+
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
 root.render(
   <ThirdwebProvider 
-    activeChain={customSepolia}
-    supportedChains={[customSepolia]}
+    activeChain={Sepolia}
+    supportedChains={[Sepolia]}
     clientId="2446c2c49acf821609d20f92435a8c7f"
     supportedWallets={[
       embeddedWallet({

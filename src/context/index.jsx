@@ -305,26 +305,17 @@ export const StateContextProvider = ({ children }) => {
   };
 
   // --- 5. FETCH ALL CAMPAIGNS ---
- const getCampaigns = async () => {
+const getCampaigns = async () => {
   try {
     if (!contract) return [];
 
-    // 1. Fetch total count from public variable
-    const count = await contract.call("numberOfCampaigns");
-    const totalCampaigns = count ? (count.toNumber ? count.toNumber() : Number(count)) : 0;
+    // Call your custom getCampaigns() function directly from Solidity
+    const campaigns = await contract.call("getCampaigns");
 
-    if (totalCampaigns === 0) return [];
+    if (!campaigns || campaigns.length === 0) return [];
 
-    // 2. Query each campaign directly from the public mapping getter
-    const campaignPromises = [];
-    for (let i = 0; i < totalCampaigns; i++) {
-      campaignPromises.push(contract.call("campaigns", [i]));
-    }
-
-    const rawCampaigns = await Promise.all(campaignPromises);
-
-    // 3. Map values using your existing parsing logic
-    return rawCampaigns.map((c, i) => {
+    // Map through the returned array of struct objects directly
+    return campaigns.map((c, i) => {
       const ethTarget = ethers.utils 
         ? ethers.utils.formatEther(c.target.toString()) 
         : (Number(c.target) / 1e18).toString();
