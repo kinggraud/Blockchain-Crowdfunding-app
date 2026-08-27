@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { useStateContext } from '../context';
 import { CustomButton, FormField } from '../components';
 import { checkIfImage } from '../utils';
+import { useStorageUpload } from '@thirdweb-dev/react';
 import { money } from '../assets';
 import { ethers } from 'ethers';
 
@@ -28,6 +29,37 @@ const CreateCampaign = () => {
     setIsSignupModalOpen, 
     setSignupInitialRole 
   } = useStateContext() || {};
+
+const { mutateAsync: upload } = useStorageUpload();
+const [isUploading, setIsUploading] = useState(false);
+const [imagePreview, setImagePreview] = useState('');
+
+const handleImageUpload = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  try {
+    setIsUploading(true);
+
+    // 1. Show immediate local preview in UI
+    setImagePreview(URL.createObjectURL(file));
+
+    // 2. Upload file directly to IPFS via Thirdweb Storage
+    const uploadUrl = await upload({
+      data: [file],
+      options: { uploadWithGatewayUrl: true },
+    });
+
+    // 3. Save IPFS URL to form state
+    const ipfsUrl = uploadUrl[0];
+    setForm((prev) => ({ ...prev, image: ipfsUrl }));
+  } catch (error) {
+    console.error('Image upload failed:', error);
+    alert('Failed to upload image. Please try again.');
+  } finally {
+    setIsUploading(false);
+  }
+};
   
   // Local state to handle loading status
   const [isFormLoading, setIsFormLoading] = useState(false);
@@ -364,13 +396,56 @@ const CreateCampaign = () => {
             />
           </div>
 
-          <FormField
-            labelName="Featured Image URL *"
-            placeholder="Link to your campaign cover photo"
-            inputType="url"
-            value={form.image}
-            handleChange={(e) => handleChange('image', e)}
-          />
+          <div className="flex flex-col gap-[10px]">
+            <label className="font-epilogue font-medium text-[14px] leading-[22px] text-[#808191]">
+              Featured Image *
+            </label>
+
+            <div className="flex flex-col items-center justify-center w-full min-h-[160px] border-2 border-dashed border-[#3a3a43] hover:border-[#1dc071] rounded-[10px] bg-[#1c1c24] cursor-pointer p-4 transition-all relative overflow-hidden">
+              {imagePreview || form.image ? (
+                <div className="relative w-full h-full flex flex-col items-center">
+                  <img
+                    src={imagePreview || form.image}
+                    alt="Campaign cover preview"
+                    className="w-full h-[180px] object-cover rounded-[8px]"
+                  />
+                  <label className="mt-2 text-[12px] text-[#1dc071] underline cursor-pointer">
+                    Change Image
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleImageUpload}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <p className="mb-2 text-sm text-[#808191]">
+                      <span className="font-semibold text-[#1dc071]">Click to upload</span> or drag and drop
+                    </p>
+                    <p className="text-xs text-[#808191]">PNG, JPG, WEBP, or GIF</p>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                    disabled={isUploading}
+                  />
+                </label>
+              )}
+
+              {isUploading && (
+                <div className="absolute inset-0 bg-[#1c1c24]/80 flex items-center justify-center">
+                  <p className="text-[#1dc071] font-semibold text-[14px] animate-pulse">
+                    Uploading to IPFS...
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* 📋 DYNAMIC CUSTOM QUESTIONS SECTION */}
           {activeEnvironment?.customQuestions && activeEnvironment.customQuestions.length > 0 && (
