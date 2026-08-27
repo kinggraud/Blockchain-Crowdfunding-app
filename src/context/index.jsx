@@ -305,47 +305,61 @@ export const StateContextProvider = ({ children }) => {
   };
 
   // --- 5. FETCH ALL CAMPAIGNS ---
-  const getCampaigns = async () => {
-    try {
-      if (!contract) return [];
-      const campaigns = await contract.call('getCampaigns');
+ const getCampaigns = async () => {
+  try {
+    if (!contract) return [];
 
-      return campaigns.map((c, i) => {
-        const ethTarget = ethers.utils 
-          ? ethers.utils.formatEther(c.target.toString()) 
-          : (Number(c.target) / 1e18).toString();
+    // 1. Fetch total count from public variable
+    const count = await contract.call("numberOfCampaigns");
+    const totalCampaigns = count ? (count.toNumber ? count.toNumber() : Number(count)) : 0;
 
-        const ethAmountCollected = ethers.utils 
-          ? ethers.utils.formatEther(c.amountCollected.toString()) 
-          : (Number(c.amountCollected) / 1e18).toString();
+    if (totalCampaigns === 0) return [];
 
-        const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'USD';
-        
-        let deadlineVal = c.deadline?.toString ? Number(c.deadline.toString()) : Number(c.deadline);
-        // Normalize seconds back to milliseconds for UI JS Date rendering if necessary
-        if (deadlineVal < 1e11) {
-          deadlineVal = deadlineVal * 1000;
-        }
-
-        return {
-          owner: c.owner,
-          title: c.title,
-          description: c.description,
-          target: parseFloat(ethTarget),
-          amountCollected: parseFloat(ethAmountCollected),
-          currency: selectedCurrency,
-          deadline: deadlineVal,
-          image: c.image,
-          pId: i,
-          rawEthTarget: ethTarget,
-          rawEthCollected: ethAmountCollected
-        };
-      });
-    } catch (error) {
-      console.error("Failed to fetch campaigns:", error);
-      return [];
+    // 2. Query each campaign directly from the public mapping getter
+    const campaignPromises = [];
+    for (let i = 0; i < totalCampaigns; i++) {
+      campaignPromises.push(contract.call("campaigns", [i]));
     }
-  };
+
+    const rawCampaigns = await Promise.all(campaignPromises);
+
+    // 3. Map values using your existing parsing logic
+    return rawCampaigns.map((c, i) => {
+      const ethTarget = ethers.utils 
+        ? ethers.utils.formatEther(c.target.toString()) 
+        : (Number(c.target) / 1e18).toString();
+
+      const ethAmountCollected = ethers.utils 
+        ? ethers.utils.formatEther(c.amountCollected.toString()) 
+        : (Number(c.amountCollected) / 1e18).toString();
+
+      const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'USD';
+      
+      let deadlineVal = c.deadline?.toString ? Number(c.deadline.toString()) : Number(c.deadline);
+      if (deadlineVal < 1e11) {
+        deadlineVal = deadlineVal * 1000;
+      }
+
+      return {
+        owner: c.owner,
+        title: c.title,
+        description: c.description,
+        target: parseFloat(ethTarget),
+        amountCollected: parseFloat(ethAmountCollected),
+        currency: selectedCurrency,
+        deadline: deadlineVal,
+        image: c.image,
+        claimed: c.claimed,
+        pId: i,
+        rawEthTarget: ethTarget,
+        rawEthCollected: ethAmountCollected
+      };
+    });
+  } catch (error) {
+    console.error("Failed to fetch campaigns:", error);
+    return [];
+  }
+};
 
   // --- 6. FETCH USER SPECIFIC CAMPAIGNS ---
   const getUserCampaigns = async () => {
