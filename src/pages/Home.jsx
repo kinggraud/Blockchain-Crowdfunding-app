@@ -3,6 +3,8 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import DisplayCampaigns from '../components/DisplayCampaigns';
 import { useStateContext } from '../context';
+import { ethers } from 'ethers';
+
 
 // 1. IMPORT FIRESTORE FUNCTIONS AND DB INSTANCE
 import { db } from '../firebase';
@@ -241,7 +243,7 @@ const Home = () => {
                         {campaign.amountCollected} ETH
                       </span>
                       <span className="text-[10px] text-slate-400 uppercase tracking-wider">
-                        Target: {campaign.target} ETH
+                        Target: {campaign.target && String(campaign.target).length >= 14 ? ethers.utils.formatEther(BigInt(campaign.target).toString()) : campaign.target} ETH
                       </span>
                     </div>
                     <span className="px-3 py-1 bg-slate-100 dark:bg-[#2c2f36] rounded-lg text-slate-600 dark:text-slate-400 font-medium text-[11px]">

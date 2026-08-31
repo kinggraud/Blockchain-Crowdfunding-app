@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-// 🪙 Pull in Thirdweb connection hooks for Web3 & Embedded wallet management
-import { useAddress, useConnect, embeddedWallet, MetaMaskWallet } from '@thirdweb-dev/react';
-
-// 🔐 Import your AuthModal component
-import AuthModal from '../components/AuthModal';
+// 🪙 Pull in Thirdweb connection hooks for Web3 management
+import { useAddress, useMetamask, useDisconnect } from '@thirdweb-dev/react';
 
 // --- IMAGE CAROUSEL ARRAYS ---
 const educationImages = [
@@ -43,6 +40,7 @@ const AutoChangingImage = ({ images, altText }) => {
           key={index}
           src={images[index]}
           alt={altText}
+          loading="lazy"
           className="w-full h-full object-cover absolute top-0 left-0"
           initial={{ opacity: 0, scale: 1.02 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -57,15 +55,15 @@ const AutoChangingImage = ({ images, altText }) => {
 const LandingPage = ({ onGetStarted }) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  
+  // 🪙 Thirdweb Web3 Wallet Hooks
   const address = useAddress();
-  const connect = useConnect();
+  const connectWithMetamask = useMetamask();
+  const disconnect = useDisconnect();
 
   // 🎯 Re-populate search input if returning back with URL query params
   const initialSearch = searchParams.get('search') || '';
   const [searchTerm, setSearchTerm] = useState(initialSearch);
-
-  // 🔑 State for controlling Auth Modal popup visibility
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   // Keep search input synced if URL search params change
   useEffect(() => {
@@ -91,13 +89,17 @@ const LandingPage = ({ onGetStarted }) => {
     navigate('/home');
   };
 
-  const handleGetStartedClick = async () => {
-    if (address) {
-      // If already connected, jump straight to main app dashboard
-      handleDashboardNavigate();
-    } else {
-      // Open login/signup auth modal (Email / Web3 wallet prompt)
-      setIsAuthOpen(true);
+  // Fixed & Scoped Correctly with window.ethereum fallback
+  const handleConnectMetamask = async () => {
+    if (typeof window.ethereum === 'undefined') {
+      window.open('https://metamask.io/download/', '_blank');
+      return;
+    }
+
+    try {
+      await connectWithMetamask();
+    } catch (err) {
+      console.error("Failed to connect MetaMask wallet:", err);
     }
   };
 
@@ -116,23 +118,44 @@ const LandingPage = ({ onGetStarted }) => {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#13131a] text-slate-900 dark:text-white transition-colors duration-300 overflow-x-hidden font-epilogue">
       
+      {/* 🌟 Keyframe styles for Marquee Banner */}
+      <style>{`
+        @keyframes marquee {
+          0% { transform: translateX(0%); }
+          100% { transform: translateX(-50%); }
+        }
+        .animate-marquee-text {
+          display: inline-block;
+          white-space: nowrap;
+          animation: marquee 25s linear infinite;
+        }
+      `}</style>
+
       {/* 🌟 HERO BANNER CONTAINER */}
       <section className="max-w-[1280px] mx-auto px-4 pt-12 pb-6 flex flex-col items-center text-center relative">
         
-        {/* DASHBOARD DIRECT SHORTCUT */}
+        {/* WALLET CONNECTION STATUS INDICATOR */}
         <div className="w-full max-w-[900px] flex justify-between items-center mb-6">
           <span className="text-xs font-semibold text-slate-400">
-            {address ? `Connected: ${address.slice(0, 6)}...${address.slice(-4)}` : 'Guest Mode'}
+            {address ? (
+              <span className="text-[#1dc071] flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#1dc071] inline-block"></span>
+                Connected: {address.slice(0, 6)}...{address.slice(-4)}
+              </span>
+            ) : (
+              'Guest Mode (Wallet Disconnected)'
+            )}
           </span>
-          {/*
-          <button 
-            type="button"
-            onClick={handleDashboardNavigate}
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-[#1c1c24] hover:bg-slate-100 dark:hover:bg-[#2c2f32] text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-slate-200 dark:border-[#3a3a43] transition-all cursor-pointer shadow-sm"
-          >
-            Go to App
-          </button>
-          */}
+
+          {address && (
+            <button
+              type="button"
+              onClick={disconnect}
+              className="text-xs font-semibold text-rose-500 hover:text-rose-600 transition-colors"
+            >
+              Disconnect
+            </button>
+          )}
         </div>
 
         <motion.div
@@ -141,13 +164,13 @@ const LandingPage = ({ onGetStarted }) => {
           className="bg-white/80 dark:bg-[#1c1c24]/80 backdrop-blur-md border border-slate-200 dark:border-[#3a3a43] rounded-[32px] p-6 sm:p-12 max-w-[900px] shadow-xl w-full"
         >
           <span className="px-4 py-1.5 rounded-full text-xs font-bold bg-[#8c6dfd]/10 text-[#8c6dfd] tracking-wide uppercase">
-            Web3 Fundraising Platform
+            Web3 Crowdfunding Platform
           </span>
           <h1 className="text-3xl sm:text-5xl font-extrabold mt-6 tracking-tight leading-tight">
             Empower Change Globally with <span className="text-[#1dc071]">Transparent</span> Escrow Style Crowdfunding
           </h1>
           <p className="text-slate-500 dark:text-[#808191] max-w-[650px] mx-auto mt-4 text-sm sm:text-base font-normal">
-            Every donation stays locked safely in the smart contract escrow. Funds are only transferred if milestones are verified, protecting your contribution from fraud.
+            Every donation stays locked safely in smart contract escrow. Funds are only transferred if milestones are verified, protecting your contribution from fraud.
           </p>
 
           {/* 🔍 SEARCH ACTIVE CAMPAIGNS FORM */}
@@ -169,13 +192,36 @@ const LandingPage = ({ onGetStarted }) => {
 
           {/* CTA BUTTONS */}
           <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center items-center">
-            <button
-              type="button"
-              onClick={handleGetStartedClick}
-              className="w-full sm:w-auto px-8 py-3.5 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-sm transition-all shadow-lg cursor-pointer"
-            >
-              {address ? 'Go to App Dashboard' : 'Get Started'}
-            </button>
+            {address ? (
+              // 1️⃣ Connected State: Show direct entry to Dashboard
+              <button
+                type="button"
+                onClick={handleDashboardNavigate}
+                className="w-full sm:w-auto px-8 py-3.5 bg-[#1dc071] hover:bg-[#1bb067] text-white font-bold rounded-xl text-sm transition-all shadow-lg cursor-pointer"
+              >
+                Go to App Dashboard
+              </button>
+            ) : (
+              // 2️⃣ Disconnected State: Offer MetaMask Connect OR Guest Dashboard Access
+              <>
+                <button
+                  type="button"
+                  onClick={handleConnectMetamask}
+                  className="w-full sm:w-auto px-8 py-3.5 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-sm transition-all shadow-lg cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox_icon.svg" alt="MetaMask" className="w-5 h-5" />
+                  Connect MetaMask
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDashboardNavigate}
+                  className="w-full sm:w-auto px-8 py-3.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold rounded-xl text-sm transition-all cursor-pointer"
+                >
+                  Enter App as Guest
+                </button>
+              </>
+            )}
             
             <button
               type="button"
@@ -211,7 +257,7 @@ const LandingPage = ({ onGetStarted }) => {
 
       {/* 🏃‍♂️ INFINITE RUNNING TEXT TICKER FEATURE */}
       <div className="bg-[#8c6dfd] text-white py-3 font-bold text-xs sm:text-sm tracking-widest uppercase overflow-hidden whitespace-nowrap select-none">
-        <div className="inline-block animate-marquee uppercase">
+        <div className="animate-marquee-text">
           LAUNCH CAMPAIGNS • TRANSPARENT ESCROW • AUTOMATIC REFUNDS • ZERO MIDDLEMEN • SECURE WALLET SIGN-IN • VERIFIED RECIPIENTS • LAUNCH CAMPAIGNS • TRANSPARENT ESCROW • AUTOMATIC REFUNDS • ZERO MIDDLEMEN • SECURE WALLET SIGN-IN • VERIFIED RECIPIENTS •
         </div>
       </div>
@@ -254,30 +300,45 @@ const LandingPage = ({ onGetStarted }) => {
         </div>
       </section>
 
-      {/* 🚀 STICKY GET STARTED CTA FOOTER WRAPPER */}
+      {/* 🚀 STICKY CTA FOOTER WRAPPER */}
       <footer className="sticky bottom-0 left-0 right-0 z-40 bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 py-6 px-4 shadow-2xl transition-colors">
         <div className="max-w-[1280px] mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="text-center sm:text-left">
-            <h4 className="font-bold text-base">Ready to interact with the next generation of charity?</h4>
-            <p className="text-xs text-slate-500 dark:text-[#808191]">Create an account or log in to manage your campaigns.</p>
+            <h4 className="font-bold text-base">Ready to interact with transparent charity?</h4>
+            <p className="text-xs text-slate-500 dark:text-[#808091]">Connect your wallet or explore active campaigns freely.</p>
           </div>
           
-          <button 
-            type="button"
-            onClick={handleGetStartedClick}
-            className="px-8 py-3 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-sm transition-all shadow-lg cursor-pointer"
-          >
-            {address ? 'Enter Application' : 'Get Started'}
-          </button>
+          <div className="flex items-center gap-3">
+            {!address ? (
+              <>
+                <button 
+                  type="button"
+                  onClick={handleConnectMetamask}
+                  className="px-6 py-2.5 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-xs sm:text-sm transition-all shadow-lg cursor-pointer flex items-center gap-2"
+                >
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox_icon.svg" alt="MetaMask" className="w-4 h-4" />
+                  Connect Wallet
+                </button>
+                <button 
+                  type="button"
+                  onClick={handleDashboardNavigate}
+                  className="px-6 py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold rounded-xl text-xs sm:text-sm transition-all cursor-pointer"
+                >
+                  Enter App
+                </button>
+              </>
+            ) : (
+              <button 
+                type="button"
+                onClick={handleDashboardNavigate}
+                className="px-8 py-3 bg-[#1dc071] hover:bg-[#1bb067] text-white font-bold rounded-xl text-sm transition-all shadow-lg cursor-pointer"
+              >
+                Go to Dashboard
+              </button>
+            )}
+          </div>
         </div>
       </footer>
-
-      {/* Auth Modal Popup Component */}
-      <AuthModal 
-        isOpen={isAuthOpen} 
-        onClose={() => setIsAuthOpen(false)} 
-        onSuccess={handleDashboardNavigate}
-      />
 
     </div>
   );

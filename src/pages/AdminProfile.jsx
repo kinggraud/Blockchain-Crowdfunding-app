@@ -2,19 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useStateContext } from '../context';
-import { db } from '../firebase'; // Ensure your firebase export is correctly path-referenced
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  addDoc, 
-  deleteDoc, 
-  query, 
-  where, 
-  serverTimestamp 
-} from 'firebase/firestore';
 
 const AdminProfile = () => {
   const navigate = useNavigate();
@@ -48,121 +35,81 @@ const AdminProfile = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [deployingId, setDeployingId] = useState(null);
 
-// 1. FIXED: Clean Sync between Active Connected Wallet & Firestore
-useEffect(() => {
-  const verifyAdminAndLoadData = async () => {
-    if (!address) {
-      setIsRegisteredAdmin(false);
-      setIsAuthenticatedAdmin(false);
-      setIsLoadingAuth(false);
-      return;
-    }
-
-    setIsLoadingAuth(true);
-    const normalizedAddress = address.toLowerCase();
-
-    try {
-      // Step A: Fetch User Profile from Firestore
-      const userDocRef = doc(db, 'users', normalizedAddress);
-      const userSnap = await getDoc(userDocRef);
-
-      let adminData = null;
-
-      if (userSnap.exists()) {
-        const data = userSnap.data();
-        if (data.role === 'admin' || data.role === 1 || data.role === '1' || data.isAdmin) {
-          adminData = data;
-        }
-      }
-
-      // Alternative Lookup: Check walletAddress field fallback
-      if (!adminData) {
-        const q = query(collection(db, 'users'), where('walletAddress', '==', normalizedAddress));
-        const querySnap = await getDocs(q);
-        if (!querySnap.empty) {
-          const data = querySnap.docs[0].data();
-          if (data.role === 'admin' || data.role === 1 || data.role === '1' || data.isAdmin) {
-            adminData = data;
-          }
-        }
-      }
-
-      if (adminData) {
-        setIsRegisteredAdmin(true);
-        setIsAuthenticatedAdmin(true);
-        setCurrentAdmin(adminData);
-        if (setAdminStatus) setAdminStatus(adminData);
-      } else {
+  // 1. Sync Active Connected Wallet & Local Data
+  useEffect(() => {
+    const verifyAdminAndLoadData = async () => {
+      if (!address) {
         setIsRegisteredAdmin(false);
         setIsAuthenticatedAdmin(false);
+        setIsLoadingAuth(false);
+        return;
       }
 
-      // Step B: Load Admin-Specific Collections from Firestore
-      await loadEnvironmentsAndSubmissions(normalizedAddress);
+      setIsLoadingAuth(true);
+      const normalizedAddress = address.toLowerCase();
 
-    } catch (error) {
-      console.error("Error verifying admin status from Firestore:", error);
-      setIsRegisteredAdmin(false);
-      setIsAuthenticatedAdmin(false);
-    } finally {
-      setIsLoadingAuth(false); // Clean termination without syntax errors
-    }
-  };
+      try {
+        // Load stored local admin user profile
+        const localAdmin = JSON.parse(localStorage.getItem(`admin_user_${normalizedAddress}`) || 'null');
 
-  verifyAdminAndLoadData();
-}, [address]);
+        if (localAdmin) {
+          setIsRegisteredAdmin(true);
+          setIsAuthenticatedAdmin(true);
+          setCurrentAdmin(localAdmin);
+          if (setAdminStatus) setAdminStatus(localAdmin);
+        } else {
+          setIsRegisteredAdmin(false);
+          setIsAuthenticatedAdmin(false);
+        }
 
-// 2. ADDED: Delete Environment directly from Firestore
-const handleDeleteEnvironment = async (envId) => {
-  if (!window.confirm("Are you sure you want to delete this environment template?")) return;
-  try {
-    await deleteDoc(doc(db, "admin_environments", envId));
-    await loadEnvironmentsAndSubmissions(address.toLowerCase());
-  } catch (error) {
-    console.error("Failed to delete environment:", error);
-    alert("Failed to delete environment from Firestore.");
-  }
-};
+        // Load local environments and pending submissions
+        loadEnvironmentsAndSubmissions(normalizedAddress);
 
-  const loadEnvironmentsAndSubmissions = async (adminAddr) => {
+      } catch (error) {
+        console.error("Error verifying local admin status:", error);
+        setIsRegisteredAdmin(false);
+        setIsAuthenticatedAdmin(false);
+      } finally {
+        setIsLoadingAuth(false);
+      }
+    };
+
+    verifyAdminAndLoadData();
+  }, [address]);
+
+  // Load Environments and Pending Submissions from LocalStorage
+  const loadEnvironmentsAndSubmissions = (adminAddr) => {
     const targetAddress = (adminAddr || address)?.toLowerCase();
     if (!targetAddress) return;
 
+    // Load Environments
+    const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
+    const adminEnvs = savedEnvs.filter(env => env.adminAddress === targetAddress);
+    setEnvironments(adminEnvs);
+
+    // Load Submissions
+    const savedSubs = JSON.parse(localStorage.getItem('pending_campaign_submissions') || '[]');
+    const adminSubs = savedSubs.filter(sub => sub.adminAddress === targetAddress);
+    setPendingCampaigns(adminSubs);
+  };
+
+  // Delete Environment from LocalStorage
+  const handleDeleteEnvironment = (envId) => {
+    if (!window.confirm("Are you sure you want to delete this environment template?")) return;
     try {
-      // Load Environments from Firestore ('admin_environments' collection)
-      const envsQuery = query(
-        collection(db, "admin_environments"), 
-        where("adminAddress", "==", targetAddress)
-      );
-      const envsSnap = await getDocs(envsQuery);
-      const loadedEnvs = envsSnap.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      }));
-      setEnvironments(loadedEnvs);
-
-      // Cache environments locally for seamless fallback on Home.jsx
-      localStorage.setItem('admin_environments', JSON.stringify(loadedEnvs));
-
-      // Load Pending Submissions from Firestore
-      const subsQuery = query(
-        collection(db, "pending_campaign_submissions"), 
-        where("adminAddress", "==", targetAddress)
-      );
-      const subsSnap = await getDocs(subsQuery);
-      const loadedSubs = subsSnap.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      }));
-      setPendingCampaigns(loadedSubs);
-
+      const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
+      const updatedEnvs = savedEnvs.filter(env => env.id !== envId);
+      localStorage.setItem('admin_environments', JSON.stringify(updatedEnvs));
+      
+      loadEnvironmentsAndSubmissions(address.toLowerCase());
     } catch (error) {
-      console.error("Failed to load environments/submissions from Firestore:", error);
+      console.error("Failed to delete environment:", error);
+      alert("Failed to delete environment.");
     }
   };
 
-  // Handler: Register New Admin in Firestore
-  const handleAdminRegistration = async (e) => {
+  // Handler: Register New Admin Locally
+  const handleAdminRegistration = (e) => {
     e.preventDefault();
     if (!regName.trim() || !regDomain.trim()) {
       alert("Please enter both Organization Name and Domain.");
@@ -175,22 +122,22 @@ const handleDeleteEnvironment = async (envId) => {
       organization: regName,
       domain: regDomain,
       walletAddress: normalizedAddress,
-      registeredAt: serverTimestamp()
+      registeredAt: new Date().toISOString()
     };
 
     try {
       setIsLoadingAuth(true);
-      await setDoc(doc(db, 'users', normalizedAddress), adminRecord, { merge: true });
+      localStorage.setItem(`admin_user_${normalizedAddress}`, JSON.stringify(adminRecord));
 
       if (setAdminStatus) setAdminStatus(adminRecord);
       setCurrentAdmin(adminRecord);
       setIsRegisteredAdmin(true);
       setIsAuthenticatedAdmin(true);
       
-      await loadEnvironmentsAndSubmissions(normalizedAddress);
+      loadEnvironmentsAndSubmissions(normalizedAddress);
     } catch (error) {
-      console.error("Failed to register admin in Firestore:", error);
-      alert("Registration failed. Please check your network connection.");
+      console.error("Failed to register admin:", error);
+      alert("Registration failed.");
     } finally {
       setIsLoadingAuth(false);
     }
@@ -215,8 +162,8 @@ const handleDeleteEnvironment = async (envId) => {
     setQuestions(questions.map((q) => (q.id === id ? { ...q, [key]: value } : q)));
   };
 
-  // Save Custom Environment Template to Firestore
-  const handleSaveEnvironment = async (e) => {
+  // Save Custom Environment Template to LocalStorage
+  const handleSaveEnvironment = (e) => {
     e.preventDefault();
     if (!envName || questions.some(q => !q.label.trim())) {
       alert("Please fill out the environment name and all question labels.");
@@ -227,24 +174,22 @@ const handleDeleteEnvironment = async (envId) => {
     const currentAddress = (address || window.ethereum?.selectedAddress || "0x0000000000000000000000000000000000000000").toLowerCase();
 
     const newEnvironment = {
+      id: `env_${Date.now()}`,
       adminAddress: currentAddress,
       title: envName,
       domain: currentAdmin?.domain || "General Academic",
       organization: currentAdmin?.organization || "Academic Institution",
       description,
       customQuestions: questions,
-      createdAt: serverTimestamp()
+      createdAt: new Date().toISOString()
     };
 
     try {
-      const docRef = await addDoc(collection(db, "admin_environments"), newEnvironment);
-
-      // Local backup sync
       const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
-      const updatedLocal = [{ id: docRef.id, ...newEnvironment }, ...savedEnvs];
+      const updatedLocal = [newEnvironment, ...savedEnvs];
       localStorage.setItem('admin_environments', JSON.stringify(updatedLocal));
 
-      await loadEnvironmentsAndSubmissions(currentAddress);
+      loadEnvironmentsAndSubmissions(currentAddress);
 
       alert("Environment template created! Users can now submit campaigns to this environment for your review.");
       
@@ -253,14 +198,14 @@ const handleDeleteEnvironment = async (envId) => {
       setQuestions([{ id: Date.now(), label: '', type: 'text', required: true }]);
       setShowFormBuilder(false);
     } catch (error) {
-      console.error("Failed to save environment template in Firestore:", error);
+      console.error("Failed to save environment template:", error);
       alert("Failed to save configuration: " + error.message);
     } finally {
       setIsSaving(false);
     }
   };
 
-  // ADMIN APPROVAL HANDLER: Deploy Campaign directly to Smart Contract & Remove from Firestore
+  // ADMIN APPROVAL HANDLER: Deploy Campaign directly to Smart Contract & Remove from LocalStorage
   const handleApproveAndDeploy = async (submission) => {
     if (!createCampaign) {
       alert("Contract context error. Ensure wallet is connected.");
@@ -285,13 +230,15 @@ const handleDeleteEnvironment = async (envId) => {
         recipient: submission.recipientAddress || form.recipientAddress
       });
 
-      // Delete approved item from Firestore pending collection
+      // Remove approved item from LocalStorage pending collection
       if (submissionId) {
-        await deleteDoc(doc(db, "pending_campaign_submissions", submissionId));
+        const savedSubs = JSON.parse(localStorage.getItem('pending_campaign_submissions') || '[]');
+        const updatedSubs = savedSubs.filter(sub => (sub.id || sub.submissionId) !== submissionId);
+        localStorage.setItem('pending_campaign_submissions', JSON.stringify(updatedSubs));
       }
 
       alert("🎉 Campaign Approved & Successfully Deployed to Blockchain!");
-      await loadEnvironmentsAndSubmissions(address.toLowerCase());
+      loadEnvironmentsAndSubmissions(address.toLowerCase());
     } catch (error) {
       console.error("Failed to deploy campaign on-chain:", error);
       alert(`Approval Failed: ${error.reason || error.message || "Execution reverted"}`);
@@ -300,14 +247,18 @@ const handleDeleteEnvironment = async (envId) => {
     }
   };
 
-  const handleRejectSubmission = async (targetId) => {
+  // Reject Submission from LocalStorage
+  const handleRejectSubmission = (targetId) => {
     if (!window.confirm("Are you sure you want to reject and remove this submission?")) return;
     try {
-      await deleteDoc(doc(db, "pending_campaign_submissions", targetId));
-      await loadEnvironmentsAndSubmissions(address.toLowerCase());
+      const savedSubs = JSON.parse(localStorage.getItem('pending_campaign_submissions') || '[]');
+      const updatedSubs = savedSubs.filter(sub => (sub.id || sub.submissionId) !== targetId);
+      localStorage.setItem('pending_campaign_submissions', JSON.stringify(updatedSubs));
+      
+      loadEnvironmentsAndSubmissions(address.toLowerCase());
     } catch (error) {
       console.error("Failed to reject submission:", error);
-      alert("Failed to remove submission from Firestore.");
+      alert("Failed to remove submission.");
     }
   };
 
@@ -522,7 +473,7 @@ const handleDeleteEnvironment = async (envId) => {
                         {formData.displayTarget || formData.target} {formData.currency || 'ETH'}
                       </span>
                       <p className="text-[10px] text-slate-400 mt-1">
-                        Submitted: {sub.createdAt?.toDate ? sub.createdAt.toDate().toLocaleDateString() : (sub.createdAt ? new Date(sub.createdAt).toLocaleDateString() : 'Recently')}
+                        Submitted: {sub.createdAt ? new Date(sub.createdAt).toLocaleDateString() : 'Recently'}
                       </p>
                     </div>
                   </div>
@@ -566,48 +517,48 @@ const handleDeleteEnvironment = async (envId) => {
       </div>
 
       {/* ACTIVE ENVIRONMENT LIST */}
-        <div className="w-full bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-3xl p-6 sm:p-8 shadow-xl">
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Configured Verification Environments</h2>
-          <p className="text-xs text-slate-400 mb-6">Share environment links so users can register and submit projects for review.</p>
+      <div className="w-full bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-3xl p-6 sm:p-8 shadow-xl">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Configured Verification Environments</h2>
+        <p className="text-xs text-slate-400 mb-6">Share environment links so users can register and submit projects for review.</p>
 
-          {environments.length === 0 ? (
-            <div className="p-8 text-center bg-slate-50 dark:bg-[#13131a] rounded-2xl border border-dashed border-slate-200 dark:border-[#3a3a43]">
-              <p className="text-sm text-slate-500 dark:text-[#808191]">No environments created yet.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {environments.map((env, index) => (
-                <div key={env.id || index} className="p-5 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">{env.title}</h3>
-                    <p className="text-xs text-slate-500 dark:text-[#808191] mt-1">{env.description || "No description provided."}</p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="text-[10px] font-bold px-2.5 py-1 bg-[#8c6dfd]/10 text-[#8c6dfd] rounded-lg">
-                        {env.customQuestions?.length || 0} Dynamic Field(s)
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 self-end sm:self-center">
-                    <button
-                      onClick={() => handleDeleteEnvironment(env.id)}
-                      className="p-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                      title="Delete Environment"
-                    >
-                      🗑️
-                    </button>
-                    <button
-                      onClick={() => navigate(`/create-campaign?envId=${env.id}`, { state: { environment: env } })}
-                      className="px-5 py-3 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-xs transition-all shadow-md cursor-pointer whitespace-nowrap"
-                    >
-                      🔗 Open User Form Link
-                    </button>
+        {environments.length === 0 ? (
+          <div className="p-8 text-center bg-slate-50 dark:bg-[#13131a] rounded-2xl border border-dashed border-slate-200 dark:border-[#3a3a43]">
+            <p className="text-sm text-slate-500 dark:text-[#808191]">No environments created yet.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {environments.map((env, index) => (
+              <div key={env.id || index} className="p-5 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">{env.title}</h3>
+                  <p className="text-xs text-slate-500 dark:text-[#808191] mt-1">{env.description || "No description provided."}</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-[10px] font-bold px-2.5 py-1 bg-[#8c6dfd]/10 text-[#8c6dfd] rounded-lg">
+                      {env.customQuestions?.length || 0} Dynamic Field(s)
+                    </span>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-center">
+                  <button
+                    onClick={() => handleDeleteEnvironment(env.id)}
+                    className="p-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                    title="Delete Environment"
+                  >
+                    🗑️
+                  </button>
+                  <button
+                    onClick={() => navigate(`/create-campaign?envId=${env.id}`, { state: { environment: env } })}
+                    className="px-5 py-3 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-xs transition-all shadow-md cursor-pointer whitespace-nowrap"
+                  >
+                    🔗 Open User Form Link
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
     </div>
   );

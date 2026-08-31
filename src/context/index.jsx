@@ -13,6 +13,7 @@ export const StateContextProvider = ({ children }) => {
   const { contract } = useContract('0x785EAf8521aFE33171Fa1bFB7B71A28B3FafB08f');
   const { mutateAsync: createCampaignFn } = useContractWrite(contract, 'createCampaign');
 
+
   // 💰 LIVE CURRENCY PRICING STATE
   const [ethPrice, setEthPrice] = useState({ usd: 3000, ngn: 4500000 });
 
@@ -20,6 +21,32 @@ export const StateContextProvider = ({ children }) => {
   const address = useAddress();
   const connect = useConnect();
   const disconnect = useDisconnect();
+
+  const approveAndDeployCampaign = async (submission) => {
+    const form = submission.formValues;
+
+  // Step A: Deploy to main Crowdfund contract
+    const data = await createCampaign({
+      args: [
+        submission.applicantAddress || address, // recipient/owner
+        form.title,
+        form.description,
+        ethers.utils.parseEther(form.target.toString()), // Convert ETH target to Wei
+        new Date(form.deadline).getTime(), // Unix timestamp
+        form.image
+      ],
+    });
+
+    // Step B: Mark as processed in AdminRegistry contract
+    if (adminRegistryContract) {
+      const markTx = await adminRegistryContract.call('markSubmissionProcessed', [
+        submission.id,
+        true // Approved
+      ]);
+    }
+
+    return data;
+  };
 
   // 🔍 GLOBAL UI & MODAL STATES
   const [searchTerm, setSearchTerm] = useState("");
@@ -488,7 +515,7 @@ const getCampaigns = async () => {
         withdrawFunds,
         searchTerm,
         setSearchTerm,
-        ethPrice
+        ethPrice, 
       }}
     >
       {children}
