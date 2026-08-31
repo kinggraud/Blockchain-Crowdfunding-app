@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebase'; // Ensure this points to your firebase config
 import { useStateContext } from '../context';
 
 const Logout = () => {
@@ -24,25 +22,19 @@ const Logout = () => {
   useEffect(() => {
     const performFullLogout = async () => {
       try {
-        // 1. Sign out from Firebase Auth
-        if (auth) {
-          await signOut(auth);
-          console.log("🔥 FIREBASE AUTH: User signed out successfully");
-        }
-
-        // 2. Disconnect Web3 Wallet provider connection
+        // 1. Disconnect Web3 Wallet provider connection
         if (disconnect) {
           await disconnect();
         }
 
-        // 3. Clear active Context state for the current session
+        // 2. Clear active Context state for the current session
         if (setUser) setUser(null);
         if (setUserStatus) setUserStatus(null);
         if (setRecipientStatus) setRecipientStatus(null);
         if (setAdminStatus) setAdminStatus(null);
         if (setIsSignupModalOpen) setIsSignupModalOpen(false);
 
-        // 4. Selective LocalStorage Cleanup (Preserves registered accounts & environments)
+        // 3. Selective LocalStorage Cleanup (Preserves registered accounts & environments)
         const keysToRemove = [];
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
@@ -79,7 +71,7 @@ const Logout = () => {
 
     performFullLogout();
 
-    // 5. Execution Countdown transition loop tracker
+    // 4. Execution Countdown transition loop tracker
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -112,7 +104,7 @@ const Logout = () => {
         </h1>
         
         <p className="text-gray-400 text-sm sm:text-base mb-8 leading-relaxed">
-          Revoking Firebase session, disconnecting wallet, and clearing active session data...
+          Disconnecting wallet and clearing active session data...
         </p>
 
         <div className="relative w-20 h-20 mx-auto flex items-center justify-center mb-4">
@@ -122,7 +114,7 @@ const Logout = () => {
         </div>
 
         <p className="text-xs text-slate-500 italic mt-6">
-          🔄 Your session has been revoked. You will need to sign in again to continue.
+          🔄 Your session has been revoked. You will need to reconnect your wallet to continue.
         </p>
       </motion.div>
     </div>
