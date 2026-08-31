@@ -7,8 +7,7 @@ import { ethers } from 'ethers';
 
 
 // 1. IMPORT FIRESTORE FUNCTIONS AND DB INSTANCE
-import { db } from '../firebase';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+
 
 const Home = () => {
   const navigate = useNavigate();
