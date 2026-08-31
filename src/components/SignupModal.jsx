@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStateContext } from "../context";
-import { auth, db } from "../firebase"; // Import Firebase auth and db
-import { doc, setDoc } from "firebase/firestore";
 
 const SignupModal = ({ isOpen, onClose, userAddress, initialRole }) => {
   const navigate = useNavigate();
