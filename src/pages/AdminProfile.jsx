@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useStateContext } from '../context';
@@ -10,7 +10,7 @@ const AdminProfile = () => {
   // Dynamic lookup for active admin info
   const [currentAdmin, setCurrentAdmin] = useState(adminStatus || userStatus || null);
 
-  // Interceptor State
+  // Local Interceptor & Auth State
   const [isRegisteredAdmin, setIsRegisteredAdmin] = useState(false);
   const [isAuthenticatedAdmin, setIsAuthenticatedAdmin] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
@@ -19,7 +19,7 @@ const AdminProfile = () => {
   const [regName, setRegName] = useState('');
   const [regDomain, setRegDomain] = useState('');
 
-  // Toggle show/hide for the environment builder form modal area
+  // Toggle show/hide for environment builder drawer
   const [showFormBuilder, setShowFormBuilder] = useState(false);
   
   // Storage States
@@ -30,14 +30,34 @@ const AdminProfile = () => {
   const [envName, setEnvName] = useState('');
   const [description, setDescription] = useState('');
   const [questions, setQuestions] = useState([
-    { id: Date.now(), label: '', type: 'text', required: true }
+    { id: `${Date.now()}_0`, label: '', type: 'text', required: true }
   ]);
   const [isSaving, setIsSaving] = useState(false);
   const [deployingId, setDeployingId] = useState(null);
 
-  // 1. Sync Active Connected Wallet & Local Data
+  // Load Environments & Submissions scoped by Connected Wallet
+  const loadEnvironmentsAndSubmissions = useCallback((targetAddr) => {
+    const normAddress = targetAddr?.toLowerCase();
+    if (!normAddress) return;
+
+    try {
+      // Load Environments from LocalStorage
+      const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
+      const adminEnvs = savedEnvs.filter(env => env.adminAddress?.toLowerCase() === normAddress);
+      setEnvironments(adminEnvs);
+
+      // Load Pending Submissions from LocalStorage
+      const savedSubs = JSON.parse(localStorage.getItem('pending_campaign_submissions') || '[]');
+      const adminSubs = savedSubs.filter(sub => sub.adminAddress?.toLowerCase() === normAddress);
+      setPendingCampaigns(adminSubs);
+    } catch (error) {
+      console.error("Error reading local storage records:", error);
+    }
+  }, []);
+
+  // 1. Local Auth & Active Wallet Sync
   useEffect(() => {
-    const verifyAdminAndLoadData = async () => {
+    const verifyLocalAdmin = async () => {
       if (!address) {
         setIsRegisteredAdmin(false);
         setIsAuthenticatedAdmin(false);
@@ -49,7 +69,7 @@ const AdminProfile = () => {
       const normalizedAddress = address.toLowerCase();
 
       try {
-        // Load stored local admin user profile
+        // Retrieve local admin profile key
         const localAdmin = JSON.parse(localStorage.getItem(`admin_user_${normalizedAddress}`) || 'null');
 
         if (localAdmin) {
@@ -60,11 +80,10 @@ const AdminProfile = () => {
         } else {
           setIsRegisteredAdmin(false);
           setIsAuthenticatedAdmin(false);
+          setCurrentAdmin(null);
         }
 
-        // Load local environments and pending submissions
         loadEnvironmentsAndSubmissions(normalizedAddress);
-
       } catch (error) {
         console.error("Error verifying local admin status:", error);
         setIsRegisteredAdmin(false);
@@ -74,41 +93,10 @@ const AdminProfile = () => {
       }
     };
 
-    verifyAdminAndLoadData();
-  }, [address]);
+    verifyLocalAdmin();
+  }, [address, setAdminStatus, loadEnvironmentsAndSubmissions]);
 
-  // Load Environments and Pending Submissions from LocalStorage
-  const loadEnvironmentsAndSubmissions = (adminAddr) => {
-    const targetAddress = (adminAddr || address)?.toLowerCase();
-    if (!targetAddress) return;
-
-    // Load Environments
-    const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
-    const adminEnvs = savedEnvs.filter(env => env.adminAddress === targetAddress);
-    setEnvironments(adminEnvs);
-
-    // Load Submissions
-    const savedSubs = JSON.parse(localStorage.getItem('pending_campaign_submissions') || '[]');
-    const adminSubs = savedSubs.filter(sub => sub.adminAddress === targetAddress);
-    setPendingCampaigns(adminSubs);
-  };
-
-  // Delete Environment from LocalStorage
-  const handleDeleteEnvironment = (envId) => {
-    if (!window.confirm("Are you sure you want to delete this environment template?")) return;
-    try {
-      const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
-      const updatedEnvs = savedEnvs.filter(env => env.id !== envId);
-      localStorage.setItem('admin_environments', JSON.stringify(updatedEnvs));
-      
-      loadEnvironmentsAndSubmissions(address.toLowerCase());
-    } catch (error) {
-      console.error("Failed to delete environment:", error);
-      alert("Failed to delete environment.");
-    }
-  };
-
-  // Handler: Register New Admin Locally
+  // Local Storage Handler: Register New Admin
   const handleAdminRegistration = (e) => {
     e.preventDefault();
     if (!regName.trim() || !regDomain.trim()) {
@@ -119,8 +107,8 @@ const AdminProfile = () => {
     const normalizedAddress = address.toLowerCase();
     const adminRecord = {
       role: 'admin',
-      organization: regName,
-      domain: regDomain,
+      organization: regName.trim(),
+      domain: regDomain.trim(),
       walletAddress: normalizedAddress,
       registeredAt: new Date().toISOString()
     };
@@ -136,14 +124,14 @@ const AdminProfile = () => {
       
       loadEnvironmentsAndSubmissions(normalizedAddress);
     } catch (error) {
-      console.error("Failed to register admin:", error);
-      alert("Registration failed.");
+      console.error("Failed to register admin locally:", error);
+      alert("Local registration failed.");
     } finally {
       setIsLoadingAuth(false);
     }
   };
 
-  // Handler: Login Existing Admin
+  // Local Storage Handler: Sign In
   const handleAdminSignIn = (e) => {
     e.preventDefault();
     setIsAuthenticatedAdmin(true);
@@ -151,35 +139,35 @@ const AdminProfile = () => {
 
   // Question Field Management Handlers
   const addQuestionField = () => {
-    setQuestions([...questions, { id: Date.now(), label: '', type: 'text', required: true }]);
+    setQuestions(prev => [...prev, { id: `${Date.now()}_${prev.length}`, label: '', type: 'text', required: true }]);
   };
 
   const removeQuestionField = (id) => {
-    setQuestions(questions.filter((q) => q.id !== id));
+    setQuestions(prev => prev.filter((q) => q.id !== id));
   };
 
   const updateQuestion = (id, key, value) => {
-    setQuestions(questions.map((q) => (q.id === id ? { ...q, [key]: value } : q)));
+    setQuestions(prev => prev.map((q) => (q.id === id ? { ...q, [key]: value } : q)));
   };
 
-  // Save Custom Environment Template to LocalStorage
+  // Save Environment Schema to LocalStorage
   const handleSaveEnvironment = (e) => {
     e.preventDefault();
-    if (!envName || questions.some(q => !q.label.trim())) {
+    if (!envName.trim() || questions.some(q => !q.label.trim())) {
       alert("Please fill out the environment name and all question labels.");
       return;
     }
 
     setIsSaving(true);
-    const currentAddress = (address || window.ethereum?.selectedAddress || "0x0000000000000000000000000000000000000000").toLowerCase();
+    const currentAddress = address ? address.toLowerCase() : "";
 
     const newEnvironment = {
       id: `env_${Date.now()}`,
       adminAddress: currentAddress,
-      title: envName,
+      title: envName.trim(),
       domain: currentAdmin?.domain || "General Academic",
       organization: currentAdmin?.organization || "Academic Institution",
-      description,
+      description: description.trim(),
       customQuestions: questions,
       createdAt: new Date().toISOString()
     };
@@ -191,24 +179,39 @@ const AdminProfile = () => {
 
       loadEnvironmentsAndSubmissions(currentAddress);
 
-      alert("Environment template created! Users can now submit campaigns to this environment for your review.");
+      alert("Environment template saved locally!");
       
       setEnvName('');
       setDescription('');
-      setQuestions([{ id: Date.now(), label: '', type: 'text', required: true }]);
+      setQuestions([{ id: `${Date.now()}_0`, label: '', type: 'text', required: true }]);
       setShowFormBuilder(false);
     } catch (error) {
-      console.error("Failed to save environment template:", error);
+      console.error("Failed to save local environment template:", error);
       alert("Failed to save configuration: " + error.message);
     } finally {
       setIsSaving(false);
     }
   };
 
-  // ADMIN APPROVAL HANDLER: Deploy Campaign directly to Smart Contract & Remove from LocalStorage
+  // Delete Environment from LocalStorage
+  const handleDeleteEnvironment = (envId) => {
+    if (!window.confirm("Are you sure you want to delete this environment template?")) return;
+    try {
+      const savedEnvs = JSON.parse(localStorage.getItem('admin_environments') || '[]');
+      const updatedEnvs = savedEnvs.filter(env => env.id !== envId);
+      localStorage.setItem('admin_environments', JSON.stringify(updatedEnvs));
+      
+      loadEnvironmentsAndSubmissions(address);
+    } catch (error) {
+      console.error("Failed to delete local environment:", error);
+      alert("Failed to delete environment.");
+    }
+  };
+
+  // Approve and Trigger Smart Contract Deployment
   const handleApproveAndDeploy = async (submission) => {
     if (!createCampaign) {
-      alert("Contract context error. Ensure wallet is connected.");
+      alert("Contract context error. Ensure wallet is connected properly.");
       return;
     }
 
@@ -218,27 +221,26 @@ const AdminProfile = () => {
     try {
       const form = submission.formValues || submission.formData || {};
 
-      // Execute Smart Contract Transaction with complete metadata
       await createCampaign({
-        name: form.name,
+        name: form.name || form.ownerName,
         title: form.title,
         description: form.description,
-        target: form.targetWei || form.target, 
-        deadline: form.deadlineUnix || form.deadline,
+        target: form.target || form.targetWei, 
+        deadline: form.deadline || form.deadlineUnix,
         image: form.image,
-        currency: form.currency || 'USD',
-        recipient: submission.recipientAddress || form.recipientAddress
+        currency: form.currency || 'ETH',
+        recipient: submission.recipientAddress || form.recipientAddress || submission.applicantAddress
       });
 
-      // Remove approved item from LocalStorage pending collection
+      // Clear pending item from LocalStorage after contract interaction
       if (submissionId) {
         const savedSubs = JSON.parse(localStorage.getItem('pending_campaign_submissions') || '[]');
         const updatedSubs = savedSubs.filter(sub => (sub.id || sub.submissionId) !== submissionId);
         localStorage.setItem('pending_campaign_submissions', JSON.stringify(updatedSubs));
       }
 
-      alert("🎉 Campaign Approved & Successfully Deployed to Blockchain!");
-      loadEnvironmentsAndSubmissions(address.toLowerCase());
+      alert("🎉 Campaign Approved & Successfully Deployed On-Chain!");
+      loadEnvironmentsAndSubmissions(address);
     } catch (error) {
       console.error("Failed to deploy campaign on-chain:", error);
       alert(`Approval Failed: ${error.reason || error.message || "Execution reverted"}`);
@@ -255,19 +257,19 @@ const AdminProfile = () => {
       const updatedSubs = savedSubs.filter(sub => (sub.id || sub.submissionId) !== targetId);
       localStorage.setItem('pending_campaign_submissions', JSON.stringify(updatedSubs));
       
-      loadEnvironmentsAndSubmissions(address.toLowerCase());
+      loadEnvironmentsAndSubmissions(address);
     } catch (error) {
       console.error("Failed to reject submission:", error);
       alert("Failed to remove submission.");
     }
   };
 
-  // GUARDS
+  // GUARDS & LOADERS
   if (isLoadingAuth) {
     return (
       <div className="flex-1 max-w-[600px] mx-auto my-12 p-8 font-epilogue text-center">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#8c6dfd] mx-auto mb-4" />
-        <p className="text-sm text-slate-500 dark:text-[#808191]">Verifying Admin Credentials...</p>
+        <p className="text-sm text-slate-500 dark:text-[#808191]">Verifying Local Admin Status...</p>
       </div>
     );
   }
@@ -286,9 +288,9 @@ const AdminProfile = () => {
     return (
       <div className="flex-1 max-w-[500px] mx-auto my-12 p-8 font-epilogue bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-3xl shadow-2xl">
         <div className="w-12 h-12 bg-[#8c6dfd]/10 text-[#8c6dfd] rounded-2xl flex items-center justify-center text-2xl mb-4">📝</div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">Register as Administrator</h2>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">Register Local Administrator</h2>
         <p className="text-xs text-slate-500 dark:text-[#808191] mb-6">
-          Your wallet (<span className="font-mono text-slate-700 dark:text-slate-300">{address.slice(0, 6)}...{address.slice(-4)}</span>) is not registered.
+          Your wallet (<span className="font-mono text-slate-700 dark:text-slate-300">{address.slice(0, 6)}...{address.slice(-4)}</span>) has no local registration details.
         </p>
 
         <form onSubmit={handleAdminRegistration} className="space-y-4">
@@ -320,7 +322,7 @@ const AdminProfile = () => {
             type="submit" 
             className="w-full py-3.5 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-sm transition-all shadow-md shadow-[#8c6dfd]/20 cursor-pointer mt-2"
           >
-            Create Admin Account
+            Create Local Admin Account
           </button>
         </form>
       </div>
@@ -332,7 +334,7 @@ const AdminProfile = () => {
       <div className="flex-1 max-w-[450px] mx-auto my-12 p-8 font-epilogue text-center bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-3xl shadow-2xl">
         <div className="w-14 h-14 bg-[#1dc071]/10 text-[#1dc071] rounded-2xl flex items-center justify-center text-2xl mx-auto mb-4 border border-[#1dc071]/20">🔑</div>
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Admin Session Expired</h2>
-        <p className="text-xs text-slate-500 dark:text-[#808191] mb-6">Authenticate to enter your administrator workspace.</p>
+        <p className="text-xs text-slate-500 dark:text-[#808191] mb-6">Authenticate locally to enter your administrator workspace.</p>
         <form onSubmit={handleAdminSignIn} className="space-y-4 text-left">
           <div className="p-3 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-xl text-xs font-mono text-slate-600 dark:text-slate-300 truncate">
             Wallet: {address}
@@ -357,7 +359,7 @@ const AdminProfile = () => {
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white">{currentAdmin?.organization || "Administrator Hub"}</h1>
             <span className="w-max px-3 py-0.5 bg-red-500/10 text-red-500 text-[10px] uppercase font-bold tracking-wider rounded-full border border-red-500/20 self-center sm:self-auto">
-              Verified Authority Protocol
+              Local Verification Mode
             </span>
           </div>
           <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Domain: <span className="font-semibold text-slate-700 dark:text-slate-200">{currentAdmin?.domain || "General Academic"}</span></p>
@@ -431,7 +433,7 @@ const AdminProfile = () => {
                 </div>
 
                 <button type="submit" disabled={isSaving} className="w-full py-3 bg-[#8c6dfd] hover:bg-[#7a59e6] text-white font-bold rounded-xl text-sm transition-colors">
-                  {isSaving ? "Saving..." : "Publish Environment Settings"}
+                  {isSaving ? "Saving..." : "Publish Environment Settings Locally"}
                 </button>
               </form>
             </div>
@@ -465,7 +467,7 @@ const AdminProfile = () => {
                       </span>
                       <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-2">{formData.title}</h3>
                       <p className="text-xs text-slate-500 dark:text-gray-400">
-                        By: {formData.name} ({applicantAddress.slice(0, 6)}...{applicantAddress.slice(-4)})
+                        By: {formData.name || formData.ownerName} ({applicantAddress.slice(0, 6)}...{applicantAddress.slice(-4)})
                       </p>
                     </div>
                     <div className="text-right">

@@ -2,17 +2,13 @@ import React, { useContext, createContext, useState, useEffect, useCallback } fr
 import { useAddress, useContract, useContractWrite, useConnect, useDisconnect, metamaskWallet } from '@thirdweb-dev/react';
 import { ethers } from 'ethers';
 
-// 1. IMPORT FIRESTORE FUNCTIONS & YOUR FIREBASE DB INSTANCE
-import { db } from "../firebase";
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-
 const StateContext = createContext();
 
 export const StateContextProvider = ({ children }) => {
-  // 📜 SMART CONTRACT INSTANTIATION
+  // 📜 SMART CONTRACT INSTANTIATIONS
+  // Main Crowdfunding Contract
   const { contract } = useContract('0x785EAf8521aFE33171Fa1bFB7B71A28B3FafB08f');
   const { mutateAsync: createCampaignFn } = useContractWrite(contract, 'createCampaign');
-
 
   // 💰 LIVE CURRENCY PRICING STATE
   const [ethPrice, setEthPrice] = useState({ usd: 3000, ngn: 4500000 });
@@ -21,32 +17,6 @@ export const StateContextProvider = ({ children }) => {
   const address = useAddress();
   const connect = useConnect();
   const disconnect = useDisconnect();
-
-  const approveAndDeployCampaign = async (submission) => {
-    const form = submission.formValues;
-
-  // Step A: Deploy to main Crowdfund contract
-    const data = await createCampaign({
-      args: [
-        submission.applicantAddress || address, // recipient/owner
-        form.title,
-        form.description,
-        ethers.utils.parseEther(form.target.toString()), // Convert ETH target to Wei
-        new Date(form.deadline).getTime(), // Unix timestamp
-        form.image
-      ],
-    });
-
-    // Step B: Mark as processed in AdminRegistry contract
-    if (adminRegistryContract) {
-      const markTx = await adminRegistryContract.call('markSubmissionProcessed', [
-        submission.id,
-        true // Approved
-      ]);
-    }
-
-    return data;
-  };
 
   // 🔍 GLOBAL UI & MODAL STATES
   const [searchTerm, setSearchTerm] = useState("");
@@ -66,7 +36,7 @@ export const StateContextProvider = ({ children }) => {
     
     const normalizedAddr = currentAddress.toLowerCase();
     const savedRecipient = localStorage.getItem(`recipient_account_${normalizedAddr}`) || localStorage.getItem(`recipient_status_${normalizedAddr}`);
-    const savedAdmin = localStorage.getItem(`admin_account_${normalizedAddr}`) || localStorage.getItem(`admin_status_${normalizedAddr}`);
+    const savedAdmin = localStorage.getItem(`admin_account_${normalizedAddr}`) || localStorage.getItem(`admin_status_${normalizedAddr}`) || localStorage.getItem(`admin_user_${normalizedAddr}`);
     const savedGeneral = localStorage.getItem(`user_status_${normalizedAddr}`);
     
     const saved = savedRecipient || savedAdmin || savedGeneral;
@@ -82,7 +52,7 @@ export const StateContextProvider = ({ children }) => {
     }
   };
 
-  // --- 2. CHECK USER STATUS (FIRESTORE -> CONTRACT -> LOCALSTORAGE) ---
+  // --- 2. CHECK USER STATUS (LOCALSTORAGE -> ON-CHAIN CONTRACT) ---
   const checkUserStatus = useCallback(async () => {
     const currentAddress = address || (typeof window !== 'undefined' && window.ethereum?.selectedAddress);
     if (!currentAddress) {
@@ -94,39 +64,14 @@ export const StateContextProvider = ({ children }) => {
 
     const normalizedAddr = currentAddress.toLowerCase();
 
-    // STEP A: Try fetching user profile from Firestore first
-    try {
-      const userDocRef = doc(db, 'users', normalizedAddr);
-      const userDocSnap = await getDoc(userDocRef);
-
-      if (userDocSnap.exists()) {
-        const firestoreData = userDocSnap.data();
-        const status = {
-          address: currentAddress,
-          role: firestoreData.role,
-          domain: firestoreData.domain || "general",
-          organization: firestoreData.organization || "",
-          isVerified: firestoreData.isVerified ?? true,
-          exists: true
-        };
-
-        if (firestoreData.role === 1 || firestoreData.role === 'admin') {
-          setAdminStatus(status);
-          localStorage.setItem(`admin_status_${normalizedAddr}`, JSON.stringify(status));
-        } else {
-          setRecipientStatus(status);
-          localStorage.setItem(`recipient_status_${normalizedAddr}`, JSON.stringify(status));
-        }
-        setUserStatus(status);
-        return; // Successfully loaded from Firestore
-      }
-    } catch (fsError) {
-      console.warn("Could not fetch user status from Firestore, falling back to local/contract:", fsError);
-    }
-
-    // STEP B: Fallback to LocalStorage
-    const savedAdmin = localStorage.getItem(`admin_account_${normalizedAddr}`) || localStorage.getItem(`admin_status_${normalizedAddr}`);
-    const savedRecipient = localStorage.getItem(`recipient_account_${normalizedAddr}`) || localStorage.getItem(`recipient_status_${normalizedAddr}`);
+    // STEP A: Fetch from LocalStorage (supporting multiple historical key conventions)
+    const savedAdmin = localStorage.getItem(`admin_account_${normalizedAddr}`) || 
+                       localStorage.getItem(`admin_status_${normalizedAddr}`) || 
+                       localStorage.getItem(`admin_user_${normalizedAddr}`);
+                       
+    const savedRecipient = localStorage.getItem(`recipient_account_${normalizedAddr}`) || 
+                           localStorage.getItem(`recipient_status_${normalizedAddr}`);
+                           
     const savedGeneral = localStorage.getItem(`user_status_${normalizedAddr}`);
 
     const parsedAdmin = savedAdmin ? JSON.parse(savedAdmin) : null;
@@ -141,13 +86,13 @@ export const StateContextProvider = ({ children }) => {
       setUserStatus(parsedAdmin);
     }
 
-    // STEP C: Fallback to Smart Contract read
+    // STEP B: Fallback to Smart Contract read if missing locally
     if (contract && !parsedAdmin && !parsedRecipient) {
       try {
         const data = await contract.call('users', [currentAddress]);
         if (data && (data.exists || data.isRegistered)) {
           const status = {
-            address: currentAddress,
+            address: normalizedAddr,
             role: Number(data.role),
             domain: data.domain || "general",
             isVerified: data.isVerified ?? true,
@@ -157,6 +102,7 @@ export const StateContextProvider = ({ children }) => {
           if (Number(data.role) === 1) {
             setAdminStatus(status);
             localStorage.setItem(`admin_status_${normalizedAddr}`, JSON.stringify(status));
+            localStorage.setItem(`admin_user_${normalizedAddr}`, JSON.stringify(status));
           } else {
             setRecipientStatus(status);
             localStorage.setItem(`recipient_status_${normalizedAddr}`, JSON.stringify(status));
@@ -203,7 +149,7 @@ export const StateContextProvider = ({ children }) => {
     return () => { isMounted = false; };
   }, []);
 
-  // --- 3. REGISTER USER (SAVING TO FIRESTORE + ENVIRONMENTS) ---
+  // --- 3. REGISTER USER (PURE WEB3 & LOCAL STORAGE - NO FIREBASE AUTH) ---
   const registerUser = async (form) => {
     try {
       setIsLoading(true);
@@ -212,8 +158,12 @@ export const StateContextProvider = ({ children }) => {
       const domain = form.domain ? form.domain.trim() : "general";
       const normalizedAddr = address ? address.toLowerCase() : "";
 
-      // Smart Contract Registration
-      if (contract && address) {
+      if (!normalizedAddr) {
+        throw new Error("No connected wallet address found.");
+      }
+
+      // 1. Smart Contract Registration Attempt
+      if (contract) {
         let isAlreadyRegistered = false;
         try {
           const existingUser = await contract.call('users', [address]);
@@ -221,47 +171,37 @@ export const StateContextProvider = ({ children }) => {
             isAlreadyRegistered = true;
           }
         } catch (readErr) {
-          console.warn("Could not check on-chain status, attempting registration write:", readErr);
+          console.warn("Could not read on-chain status, attempting registration write:", readErr);
         }
 
         if (!isAlreadyRegistered) {
-          const tx = await contract.call('registerUser', [roleNumber, domain]);
-          console.log("On-chain registration successful:", tx);
+          try {
+            const tx = await contract.call('registerUser', [roleNumber, domain]);
+            console.log("On-chain registration successful:", tx);
+          } catch (writeErr) {
+            console.warn("On-chain write bypassed or failed:", writeErr);
+          }
         }
       }
 
+      // 2. Local State Object
       const newUserData = {
         address: normalizedAddr,
+        walletAddress: normalizedAddr,
         role: roleNumber,
         isAdmin: isFormAdmin,
         domain,
-        organization: form.organization || "Academic Institution",
+        organization: form.organization || form.name || "Academic Institution",
         isVerified: true,
         exists: true,
-        createdAt: serverTimestamp()
+        registeredAt: new Date().toISOString()
       };
 
-      // 💾 SAVE TO FIRESTORE USERS
-      if (normalizedAddr) {
-        const userDocRef = doc(db, 'users', normalizedAddr);
-        await setDoc(userDocRef, newUserData, { merge: true });
-
-        // 💾 SAVE ADMIN ENVIRONMENT TO FIRESTORE (Global collection for cross-device retrieval)
-        if (isFormAdmin && domain) {
-          const envDocRef = doc(db, 'environments', domain.toLowerCase());
-          await setDoc(envDocRef, {
-            name: domain,
-            createdBy: normalizedAddr,
-            organization: form.organization || "Academic Institution",
-            createdAt: serverTimestamp()
-          }, { merge: true });
-        }
-      }
-
-      // 💾 SAVE TO LOCAL STORAGE
+      // 3. Save to Local Storage by normalized address
       if (isFormAdmin) {
         localStorage.setItem(`admin_status_${normalizedAddr}`, JSON.stringify(newUserData));
         localStorage.setItem(`admin_account_${normalizedAddr}`, JSON.stringify(newUserData));
+        localStorage.setItem(`admin_user_${normalizedAddr}`, JSON.stringify(newUserData));
         sessionStorage.setItem(`admin_session_${normalizedAddr}`, 'true');
         setAdminStatus(newUserData);
         setActiveRole('admin');
@@ -285,7 +225,7 @@ export const StateContextProvider = ({ children }) => {
     }
   };
 
-  // --- 4. CREATE CAMPAIGN (WITH MILLISECOND TO SECOND UNIX CONVERSION) ---
+  // --- 4. CREATE CAMPAIGN ---
   const createCampaign = async (form) => {
     if (!address) return alert("Please connect your wallet first!");
 
@@ -293,15 +233,15 @@ export const StateContextProvider = ({ children }) => {
       setIsLoading(true);
 
       // Convert Date string/timestamp to EVM seconds format
-      let parsedDeadline = new Date(form.deadline).getTime();
+      let parsedDeadline = typeof form.deadline === 'number' ? form.deadline : new Date(form.deadline).getTime();
       if (parsedDeadline > 1e11) {
-        parsedDeadline = Math.floor(parsedDeadline / 1000); // 👈 Fixes contract execution revert
+        parsedDeadline = Math.floor(parsedDeadline / 1000);
       }
 
       // Convert target to Wei if it is passed in standard ETH string/number
-      const targetInWei = ethers.utils 
-        ? ethers.utils.parseEther(form.target.toString()) 
-        : ethers.parseEther(form.target.toString());
+      const targetInWei = (typeof form.target === 'string' && form.target.length > 10) 
+        ? form.target 
+        : (ethers.utils ? ethers.utils.parseEther(form.target.toString()) : ethers.parseEther(form.target.toString()));
 
       const args = [
         address,
@@ -332,52 +272,49 @@ export const StateContextProvider = ({ children }) => {
   };
 
   // --- 5. FETCH ALL CAMPAIGNS ---
-const getCampaigns = async () => {
-  try {
-    if (!contract) return [];
+  const getCampaigns = async () => {
+    try {
+      if (!contract) return [];
 
-    // Call your custom getCampaigns() function directly from Solidity
-    const campaigns = await contract.call("getCampaigns");
+      const campaigns = await contract.call("getCampaigns");
+      if (!campaigns || campaigns.length === 0) return [];
 
-    if (!campaigns || campaigns.length === 0) return [];
+      return campaigns.map((c, i) => {
+        const ethTarget = ethers.utils 
+          ? ethers.utils.formatEther(c.target.toString()) 
+          : (Number(c.target) / 1e18).toString();
 
-    // Map through the returned array of struct objects directly
-    return campaigns.map((c, i) => {
-      const ethTarget = ethers.utils 
-        ? ethers.utils.formatEther(c.target.toString()) 
-        : (Number(c.target) / 1e18).toString();
+        const ethAmountCollected = ethers.utils 
+          ? ethers.utils.formatEther(c.amountCollected.toString()) 
+          : (Number(c.amountCollected) / 1e18).toString();
 
-      const ethAmountCollected = ethers.utils 
-        ? ethers.utils.formatEther(c.amountCollected.toString()) 
-        : (Number(c.amountCollected) / 1e18).toString();
+        const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'USD';
+        
+        let deadlineVal = c.deadline?.toString ? Number(c.deadline.toString()) : Number(c.deadline);
+        if (deadlineVal < 1e11) {
+          deadlineVal = deadlineVal * 1000;
+        }
 
-      const selectedCurrency = c.currency ? c.currency.toString().toUpperCase().trim() : 'USD';
-      
-      let deadlineVal = c.deadline?.toString ? Number(c.deadline.toString()) : Number(c.deadline);
-      if (deadlineVal < 1e11) {
-        deadlineVal = deadlineVal * 1000;
-      }
-
-      return {
-        owner: c.owner,
-        title: c.title,
-        description: c.description,
-        target: parseFloat(ethTarget),
-        amountCollected: parseFloat(ethAmountCollected),
-        currency: selectedCurrency,
-        deadline: deadlineVal,
-        image: c.image,
-        claimed: c.claimed,
-        pId: i,
-        rawEthTarget: ethTarget,
-        rawEthCollected: ethAmountCollected
-      };
-    });
-  } catch (error) {
-    console.error("Failed to fetch campaigns:", error);
-    return [];
-  }
-};
+        return {
+          owner: c.owner,
+          title: c.title,
+          description: c.description,
+          target: parseFloat(ethTarget),
+          amountCollected: parseFloat(ethAmountCollected),
+          currency: selectedCurrency,
+          deadline: deadlineVal,
+          image: c.image,
+          claimed: c.claimed,
+          pId: i,
+          rawEthTarget: ethTarget,
+          rawEthCollected: ethAmountCollected
+        };
+      });
+    } catch (error) {
+      console.error("Failed to fetch campaigns:", error);
+      return [];
+    }
+  };
 
   // --- 6. FETCH USER SPECIFIC CAMPAIGNS ---
   const getUserCampaigns = async () => {
@@ -388,50 +325,48 @@ const getCampaigns = async () => {
 
   // --- 7. DONATE TO CAMPAIGN ---
   const donate = async (pId, amount) => {
-  try {
-    setIsLoading(true);
-    const weiValue = ethers.utils 
-      ? ethers.utils.parseEther(amount.toString()) 
-      : ethers.parseEther(amount.toString());
+    try {
+      setIsLoading(true);
+      const weiValue = ethers.utils 
+        ? ethers.utils.parseEther(amount.toString()) 
+        : ethers.parseEther(amount.toString());
 
-    const data = await contract.call('donateToCampaign', [pId], { 
-      value: weiValue 
-    });
-
-    return data;
-  } catch (error) {
-    console.error("Donation failed:", error);
-
-    // Intercept embedded wallet key share decryption errors
-    const errorMsg = error?.message || error?.toString() || '';
-    if (
-      errorMsg.includes("Missing recovery share") || 
-      errorMsg.includes("recovery share") ||
-      errorMsg.includes("Key share")
-    ) {
-      alert("Embedded wallet session expired or lost sync. Clearing local session so you can re-authenticate.");
-      
-      // Clear corrupt Thirdweb embedded wallet key shares from local storage
-      Object.keys(localStorage).forEach((key) => {
-        if (
-          key.includes("thirdweb") || 
-          key.includes("paper") || 
-          key.includes("embedded_wallet") ||
-          key.includes("tw_")
-        ) {
-          localStorage.removeItem(key);
-        }
+      const data = await contract.call('donateToCampaign', [pId], { 
+        value: weiValue 
       });
 
-      // Reload window to force fresh embedded wallet initialization
-      window.location.reload();
-    }
+      return data;
+    } catch (error) {
+      console.error("Donation failed:", error);
 
-    throw error;
-  } finally {
-    setIsLoading(false);
-  }
-};
+      const errorMsg = error?.message || error?.toString() || '';
+      if (
+        errorMsg.includes("Missing recovery share") || 
+        errorMsg.includes("recovery share") ||
+        errorMsg.includes("Key share")
+      ) {
+        alert("Embedded wallet session expired or lost sync. Clearing local session so you can re-authenticate.");
+        
+        Object.keys(localStorage).forEach((key) => {
+          if (
+            key.includes("thirdweb") || 
+            key.includes("paper") || 
+            key.includes("embedded_wallet") ||
+            key.includes("tw_")
+          ) {
+            localStorage.removeItem(key);
+          }
+        });
+
+        window.location.reload();
+      }
+
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // --- 8. GET DONATIONS HISTORY ---
   const getDonations = async (pId) => {
     try {

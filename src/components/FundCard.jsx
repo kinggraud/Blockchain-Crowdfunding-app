@@ -7,7 +7,7 @@ import { convertFromEth } from '../utils/cryptoUtils';
 
 // 🔍 Utility: Map creator currency selection directly to visual symbols
 const getCurrencySymbol = (currency) => {
-  if (!currency) return 'Ξ'; // Default fallback to ETH symbol if undefined
+  if (!currency) return 'Ξ';
   
   const upperCurrency = currency.toString().toUpperCase().trim();
   
@@ -42,7 +42,6 @@ const parseAndFormatAmount = (value) => {
   try {
     const strVal = value.toString();
 
-    // If the value is a raw Wei string (18 decimals, e.g. length > 14 or standard 1e18 range)
     if (strVal.length > 14 && !strVal.includes('.')) {
       const formattedEth = ethers.utils 
         ? ethers.utils.formatEther(strVal) 
@@ -52,7 +51,6 @@ const parseAndFormatAmount = (value) => {
       return isNaN(parsedNum) ? '0' : parsedNum.toLocaleString(undefined, { maximumFractionDigits: 4 });
     }
 
-    // Standard number formatting
     const parsed = Number(strVal);
     if (isNaN(parsed)) return '0';
 
@@ -74,19 +72,22 @@ const FundCard = (props) => {
     image, 
     handleClick, 
     pId, 
-    currency 
+    currency,
+    // Safely check common prop names for verification state
+    isAdminVerified,
+    isVerified,
+    verified
   } = props;
+
+  // Evaluates to true if any verification prop is truthy
+  const verifiedState = Boolean(isAdminVerified || isVerified || verified);
 
   const remainingDays = daysLeft(deadline);
   
-  // 🔍 Extract symbol and formatted values
   const currencySymbol = getCurrencySymbol(currency);
-
-  // First convert Wei -> ETH
   const rawCollected = parseAndFormatAmount(amountCollected);
   const rawTarget = parseAndFormatAmount(target);
 
-  // Then convert ETH -> selected currency
   const formattedCollected =
     currency && currency !== "ETH"
       ? convertFromEth(rawCollected, currency)
@@ -97,7 +98,6 @@ const FundCard = (props) => {
       ? convertFromEth(rawTarget, currency)
       : rawTarget;
 
-  // 📊 Progress Calculation Handler
   const calculateProgress = (collectedVal, targetVal) => {
     try {
       let c = collectedVal ? collectedVal.toString() : '0';
@@ -111,7 +111,7 @@ const FundCard = (props) => {
       }
 
       const numCollected = parseFloat(c) || 0;
-      const numGoal = parseFloat(t) || 1; // Prevent division by zero
+      const numGoal = parseFloat(t) || 1;
 
       const percentage = Math.round((numCollected / numGoal) * 100);
       return percentage > 100 ? 100 : percentage;
@@ -141,8 +141,18 @@ const FundCard = (props) => {
           alt={title || "fund"} 
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
         />
-        <div className="absolute top-3 right-3 bg-white/80 dark:bg-[#13131a]/80 backdrop-blur-md px-3 py-1 rounded-full border border-slate-200 dark:border-white/10">
-          <p className="text-[#4acd8d] text-[10px] font-bold uppercase tracking-widest">Verified</p>
+        
+        {/* 🏷️ SINGLE DYNAMIC BADGE */}
+        <div className="absolute top-3 right-3 bg-white/90 dark:bg-[#13131a]/90 backdrop-blur-md px-3 py-1 rounded-full border border-slate-200 dark:border-white/10 shadow-sm z-10">
+          {verifiedState ? (
+            <p className="text-[#4acd8d] text-[10px] font-bold uppercase tracking-widest flex items-center gap-1">
+              ✓ Admin Verified
+            </p>
+          ) : (
+            <p className="text-[#8c6dfd] text-[10px] font-bold uppercase tracking-widest">
+              Active
+            </p>
+          )}
         </div>
       </div>
 
