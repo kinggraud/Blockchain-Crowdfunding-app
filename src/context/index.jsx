@@ -21,7 +21,7 @@ export const StateContextProvider = ({ children }) => {
   // 🔍 GLOBAL UI & MODAL STATES
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isSignupModalOpen, setIsSignupModalOpen] = useState(false);
+ 
   const [signupInitialRole, setSignupInitialRole] = useState(null); // 'admin' | 'recipient' | null
 
   // 👤 ROLE-BASED ACCOUNT PROFILES
