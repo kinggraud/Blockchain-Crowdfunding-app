@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStateContext } from '../context';
-import SignupModal from './SignupModal'; // Adjust import path if needed
+
 
 const AdminGuard = ({ children }) => {
   const navigate = useNavigate();

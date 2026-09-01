@@ -21,7 +21,7 @@ export const StateContextProvider = ({ children }) => {
   // 🔍 GLOBAL UI & MODAL STATES
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
- 
+  const [isSignupModalOpen, setIsSignupModalOpen] = useState(false);
   const [signupInitialRole, setSignupInitialRole] = useState(null); // 'admin' | 'recipient' | null
 
   // 👤 ROLE-BASED ACCOUNT PROFILES
@@ -149,7 +149,7 @@ export const StateContextProvider = ({ children }) => {
     return () => { isMounted = false; };
   }, []);
 
-  // --- 3. REGISTER USER (PURE WEB3 & LOCAL STORAGE - NO FIREBASE AUTH) ---
+  // --- 3. REGISTER USER (PURE WEB3 & LOCAL STORAGE) ---
   const registerUser = async (form) => {
     try {
       setIsLoading(true);
@@ -345,7 +345,7 @@ export const StateContextProvider = ({ children }) => {
         errorMsg.includes("recovery share") ||
         errorMsg.includes("Key share")
       ) {
-        alert("Embedded wallet session expired or lost sync. Clearing local session so you can re-authenticate.");
+        alert("Session sync lost. Clearing local session cache.");
         
         Object.keys(localStorage).forEach((key) => {
           if (

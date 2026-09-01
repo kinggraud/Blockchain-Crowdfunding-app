@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
 import { DisplayCampaigns } from '../components';
 import { useStateContext } from '../context';
 import { thirdweb } from '../assets';
@@ -29,48 +27,7 @@ const Profile = () => {
     contract, 
     getUserCampaigns 
   } = useStateContext() || {};
-
-  // 🚀 REAL-TIME PROFILE & ADMIN SYNC FROM FIRESTORE
-  useEffect(() => {
-    if (!address) {
-      setDisplayedName('');
-      setDisplayedPic('');
-      setFullName('');
-      setProfilePic('');
-      setIsAdmin(false);
-      return;
-    }
-
-    const formattedAddress = address.toLowerCase();
-    const userDocRef = doc(db, "users", formattedAddress);
-
-    // Listen to real-time changes in Firestore
-    const unsubscribe = onSnapshot(
-      userDocRef,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setDisplayedName(data.fullName || '');
-          setDisplayedPic(data.profilePic || '');
-          setFullName(data.fullName || '');
-          setProfilePic(data.profilePic || '');
-          setIsAdmin(!!data.isAdmin);
-        } else {
-          setDisplayedName('');
-          setDisplayedPic('');
-          setFullName('');
-          setProfilePic('');
-          setIsAdmin(false);
-        }
-      },
-      (error) => {
-        console.error("Error listening to Firestore user profile:", error);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [address]);
-
+  
   // Fetch campaigns associated with connected wallet
   const fetchCampaigns = async () => {
     setIsLoading(true);
@@ -90,12 +47,36 @@ const Profile = () => {
     if (contract && address) fetchCampaigns();
   }, [address, contract]);
 
+  // Load Profile from Local Storage on mount or address change
+  useEffect(() => {
+    if (address) {
+      const storedProfile = localStorage.getItem(`user_profile_${address.toLowerCase()}`);
+      if (storedProfile) {
+        try {
+          const parsedData = JSON.parse(storedProfile);
+          setDisplayedName(parsedData.fullName || '');
+          setDisplayedPic(parsedData.profilePic || '');
+          setFullName(parsedData.fullName || '');
+          setProfilePic(parsedData.profilePic || '');
+        } catch (error) {
+          console.error("Error parsing local profile data:", error);
+        }
+      } else {
+        // Reset state if no profile exists for this address
+        setDisplayedName('');
+        setDisplayedPic('');
+        setFullName('');
+        setProfilePic('');
+      }
+    }
+  }, [address]);
+
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     if (file.size > 1 * 1024 * 1024) {
-      alert("Please upload an image smaller than 1MB for smooth database storage.");
+      alert("Please upload an image smaller than 1MB for local storage.");
       return;
     }
 
@@ -106,26 +87,31 @@ const Profile = () => {
     reader.readAsDataURL(file);
   };
 
-  // Save Profile Details directly to Firestore Database
+  // Save Profile Details to Local Storage
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!fullName.trim()) return alert("Full name cannot be left blank");
     if (!address) return alert("Wallet not connected!");
 
     try {
-      const userDocRef = doc(db, "users", address.toLowerCase());
-      
-      await setDoc(userDocRef, {
+      const profileData = {
         fullName: fullName.trim(),
         profilePic: profilePic,
         walletAddress: address.toLowerCase(),
         updatedAt: new Date().toISOString()
-      }, { merge: true });
+      };
+
+      // Save to localStorage using the wallet address as a unique key
+      localStorage.setItem(`user_profile_${address.toLowerCase()}`, JSON.stringify(profileData));
+
+      // Update the UI immediately
+      setDisplayedName(profileData.fullName);
+      setDisplayedPic(profileData.profilePic);
 
       setIsProfileModalOpen(false);
     } catch (err) {
-      console.error("Error saving profile to Firestore:", err);
-      alert("Failed to save profile. Please check your connection and try again.");
+      console.error("Error saving profile to Local Storage:", err);
+      alert("Failed to save profile locally. Storage might be full.");
     }
   };
 
@@ -253,8 +239,8 @@ const Profile = () => {
             <h3 className="text-3xl font-black text-[#4acd8d]">{totalETH} ETH</h3>
         </div>
         <div className="p-6 bg-[#8c6dfd] rounded-2xl flex flex-col items-center shadow-lg shadow-[#8c6dfd]/20">
-            <p className="text-white/70 text-[10px] uppercase font-bold tracking-widest mb-2">Cloud Database</p>
-            <h3 className="text-3xl font-black text-white">Synced</h3>
+            <p className="text-white/70 text-[10px] uppercase font-bold tracking-widest mb-2">Local Storage</p>
+            <h3 className="text-3xl font-black text-white">Active</h3>
         </div>
       </div>
 
@@ -273,7 +259,7 @@ const Profile = () => {
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-fade-in">
           <div className="bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] w-full max-w-[500px] p-8 rounded-3xl shadow-2xl">
             <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Configure Profile Identity</h3>
-            <p className="text-slate-400 text-xs mb-6">Save your profile details directly to Firestore Cloud Database.</p>
+            <p className="text-slate-400 text-xs mb-6">Save your profile details locally in your browser.</p>
             
             <form onSubmit={handleSaveProfile} className="flex flex-col gap-5">
               <div className="flex flex-col gap-2">

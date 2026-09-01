@@ -3,42 +3,34 @@ import { Route, Routes, Navigate, useLocation } from 'react-router-dom';
 
 import LandingPage from './components/LandingPage';
 import ActiveCampaigns from './pages/ActiveCampaigns';
-import { Sidebar, Navbar, SignupModal, AuthModal } from './components';
+import { Sidebar, Navbar } from './components';
 import Footer from "./components/Footer";
 import { Logout } from './pages';
 import { CampaignDetails, CreateCampaign, Home, Profile, HelpCenter, AdminProfile } from './pages';
 import AdminGuard from './components/AdminGuard';
 import { useStateContext } from './context';
 
+// Ensure you import SignupModal here if it isn't already imported globally
+// import SignupModal from './components/SignupModal'; 
+
 const App = () => {
   const location = useLocation();
 
-  const context = useStateContext() || {};
+  // Destructure only the necessary Web3 and UI state from your context
   const { 
-    user, 
-    authLoading = false,
-    isSignupModalOpen = false, 
+    address, 
+    isSignupModalOpen, 
     setIsSignupModalOpen, 
-    isAuthModalOpen = false,
-    setIsAuthModalOpen,
-    signupInitialRole = null, 
-    address = '' 
-  } = context;
+    signupInitialRole 
+  } = useStateContext() || {};
 
-  // 1️⃣ Loading screen while Firebase/Thirdweb checks persistent session on refresh
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#1c1c24] flex justify-center items-center font-epilogue">
-        <p className="animate-pulse text-[#8c6dfd] font-bold text-lg">Initializing Session...</p>
-      </div>
-    );
-  }
-
-  // 2️⃣ Determine if the requested campaign details page should be public/standalone
+  // 1️⃣ Determine if the requested campaign details page should be public/standalone
   // It renders public ONLY IF coming from public pages or without an active logged-in session
   const isCampaignDetailsPath = location.pathname.startsWith('/campaign-details/');
   const isExplicitFromDashboard = location.state?.fromDashboard === true;
-  const isLoggedIn = Boolean(address || user);
+  
+  // Login status is now determined purely by the presence of a Web3 wallet address
+  const isLoggedIn = Boolean(address);
 
   const isPublicCampaignDetails = isCampaignDetailsPath && !isExplicitFromDashboard && !isLoggedIn;
 
@@ -48,7 +40,7 @@ const App = () => {
     location.pathname === '/active-campaigns' ||
     isPublicCampaignDetails;
 
-  // 3️⃣ STANDALONE PUBLIC ROUTES (No Sidebar, No Navbar, No Dashboard Shell)
+  // 2️⃣ STANDALONE PUBLIC ROUTES (No Sidebar, No Navbar, No Dashboard Shell)
   if (isPublicRoute) {
     return (
       <>
@@ -58,19 +50,11 @@ const App = () => {
           <Route path="/active-campaigns" element={<ActiveCampaigns />} />
           <Route path="/campaign-details/:id" element={<CampaignDetails />} />
         </Routes>
-
-        {/* Global Auth Modal for public visitors clicking Sign In */}
-        {setIsAuthModalOpen && (
-          <AuthModal 
-            isOpen={isAuthModalOpen}
-            onClose={() => setIsAuthModalOpen(false)}
-          />
-        )}
       </>
     );
   }
 
-  // 4️⃣ MAIN APP DASHBOARD LAYOUT (Includes Sidebar, Navbar, and Footer for Logged-In Users)
+  // 3️⃣ MAIN APP DASHBOARD LAYOUT (Includes Sidebar, Navbar, and Footer for Logged-In Users)
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#1c1c24] transition-colors duration-300 font-epilogue">
       
@@ -130,21 +114,8 @@ const App = () => {
         
       </div>
       
-      {/* 🔐 Global Registration Modal */}
-      <SignupModal 
-        isOpen={isSignupModalOpen}
-        initialRole={signupInitialRole}
-        onClose={() => setIsSignupModalOpen && setIsSignupModalOpen(false)}
-        userAddress={address}
-      />
-
-      {/* 🔑 Global Auth (Sign In / Sign Up) Modal */}
-      {setIsAuthModalOpen && (
-        <AuthModal 
-          isOpen={isAuthModalOpen}
-          onClose={() => setIsAuthModalOpen(false)}
-        />
-      )}
+      {/* 🔐 Global Registration Modal (Web3 / Smart Contract based) */}
+      
 
       <Footer />
     </div>

@@ -6,7 +6,7 @@ import { useStateContext } from '../context';
 import { CustomButton } from './';
 import { logo, menu, search, thirdweb } from '../assets';
 import { navlinks } from '../constants';
-import SignupModal from './SignupModal';
+
 
 const Navbar = () => {
   const navigate = useNavigate();
@@ -239,11 +239,6 @@ const Navbar = () => {
           </div>
         </div> 
       </div>
-
-      <SignupModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-      />
     </div>
   );
 };

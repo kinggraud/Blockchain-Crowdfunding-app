@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import SignupModal from "./SignupModal";
+
 
 const Footer = () => {
   const [showModal, setShowModal] = useState(false);
@@ -93,14 +93,7 @@ const Footer = () => {
         </div>
       </footer>
 
-      <SignupModal
-        isOpen={showModal}
-        onClose={() => setShowModal(false)}
-        onSelect={(role) => {
-          console.log("Selected role:", role);
-          setShowModal(false);
-        }}
-      />
+      
     </>
   );
 };
