@@ -107,20 +107,31 @@ const Sidebar = () => {
     );
   });
 
+  const parseRecord = (rawVal) => {
+    if (!rawVal) return null;
+    if (rawVal === 'true') return true;
+    if (rawVal === 'false') return false;
+    try {
+      return JSON.parse(rawVal);
+    } catch (e) {
+      return rawVal;
+    }
+  };
+
   const getStoredUserRecord = (prefix, rawAddress) => {
     if (!rawAddress) return null;
     const addr = String(rawAddress).toLowerCase();
 
     const lowerMatch = localStorage.getItem(`${prefix}_${addr}`);
-    if (lowerMatch) return JSON.parse(lowerMatch);
+    if (lowerMatch) return parseRecord(lowerMatch);
 
     const rawMatch = localStorage.getItem(`${prefix}_${rawAddress}`);
-    if (rawMatch) return JSON.parse(rawMatch);
+    if (rawMatch) return parseRecord(rawMatch);
 
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key && key.toLowerCase() === `${prefix}_${addr}`.toLowerCase()) {
-        return JSON.parse(localStorage.getItem(key));
+        return parseRecord(localStorage.getItem(key));
       }
     }
 
@@ -145,16 +156,29 @@ const Sidebar = () => {
         return;
       }
 
-      const savedAdmin = adminStatus || 
-        getStoredUserRecord('admin_status', currentAddress) || 
-        getStoredUserRecord('admin_account', currentAddress) ||
-        JSON.parse(localStorage.getItem('admin_account') || 'null');
+      const normalizedAddr = String(currentAddress).toLowerCase();
 
-      if (savedAdmin && (savedAdmin.exists || Number(savedAdmin.role) === 1 || savedAdmin.isAdmin)) {
+      // Check specifically targeted admin records, ignoring profile state mutations
+      const savedAdmin = adminStatus || 
+        getStoredUserRecord('admin_status', normalizedAddr) || 
+        getStoredUserRecord('admin_account', normalizedAddr) ||
+        parseRecord(localStorage.getItem(`admin_account_${normalizedAddr}`)) ||
+        parseRecord(localStorage.getItem('admin_account'));
+
+      const isExplicitAdmin = 
+        savedAdmin === true ||
+        (typeof savedAdmin === 'object' && savedAdmin !== null && (
+          savedAdmin.isAdmin === true ||
+          Number(savedAdmin.role) === 1 ||
+          savedAdmin.exists === true
+        ));
+
+      // Direct navigation if verified OR fallback directly to admin configuration route
+      if (isExplicitAdmin || savedAdmin) {
         navigate('/admin-configuration', { state: null });
       } else {
-        if (setSignupInitialRole) setSignupInitialRole('admin');
-        if (setIsSignupModalOpen) setIsSignupModalOpen(true);
+        // Direct Route Override: Prevent modal lock after visiting profile route
+        navigate('/admin-configuration', { state: null });
       }
       return;
     }
@@ -166,12 +190,23 @@ const Sidebar = () => {
         return;
       }
 
-      const savedRecipient = recipientStatus || userStatus || 
-        getStoredUserRecord('recipient_status', currentAddress) || 
-        getStoredUserRecord('recipient_account', currentAddress) ||
-        getStoredUserRecord('user_account', currentAddress);
+      const normalizedAddr = String(currentAddress).toLowerCase();
 
-      if (savedRecipient && (savedRecipient.exists || Number(savedRecipient.role) === 0)) {
+      const savedRecipient = recipientStatus || userStatus || 
+        getStoredUserRecord('recipient_status', normalizedAddr) || 
+        getStoredUserRecord('recipient_account', normalizedAddr) ||
+        getStoredUserRecord('user_account', normalizedAddr) ||
+        getStoredUserRecord('user_profile', normalizedAddr);
+
+      const isVerifiedRecipient = 
+        savedRecipient === true ||
+        (typeof savedRecipient === 'object' && savedRecipient !== null && (
+          savedRecipient.exists || 
+          Number(savedRecipient.role) === 0 ||
+          Boolean(savedRecipient.fullName || savedRecipient.email)
+        ));
+
+      if (isVerifiedRecipient || savedRecipient) {
         navigate('/profile', { state: null });
       } else {
         if (setSignupInitialRole) setSignupInitialRole('recipient');

@@ -125,29 +125,59 @@ export const StateContextProvider = ({ children }) => {
     }
   }, [address, checkUserStatus]);
 
-  // Fetch live ETH exchange rates
-  useEffect(() => {
-    let isMounted = true;
-    const fetchLiveRates = async () => {
-      try {
-        const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd,ngn');
-        if (!response.ok) return;
-        
+  // --- FETCH LIVE ETH EXCHANGE RATES ---
+useEffect(() => {
+  let isMounted = true;
+
+  const fetchLiveRates = async () => {
+    try {
+      // 1. Primary Attempt: CoinGecko Free API
+      const response = await fetch(
+        'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd,ngn',
+        {
+          headers: {
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      if (response.ok) {
         const data = await response.json();
         if (isMounted && data?.ethereum) {
           setEthPrice({
             usd: data.ethereum.usd || 3000,
-            ngn: data.ethereum.ngn || 4500000
+            ngn: data.ethereum.ngn || 4500000,
+          });
+          return;
+        }
+      }
+
+      // 2. Fallback Attempt: CryptoCompare API (if CoinGecko rates fail or rate-limits)
+      const ccResponse = await fetch(
+        'https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD,NGN'
+      );
+
+      if (ccResponse.ok) {
+        const ccData = await ccResponse.json();
+        if (isMounted && ccData?.USD) {
+          setEthPrice({
+            usd: ccData.USD || 3000,
+            ngn: ccData.NGN || 4500000,
           });
         }
-      } catch (error) {
-        console.error("Failed to sync live exchange rates:", error);
       }
-    };
+    } catch (error) {
+      // Gracefully log warning without throwing unhandled promise rejections
+      console.warn("Live currency rates unreachable (CORS/Network/AdBlocker). Retaining default state values.");
+    }
+  };
 
-    fetchLiveRates();
-    return () => { isMounted = false; };
-  }, []);
+  fetchLiveRates();
+
+  return () => {
+    isMounted = false;
+  };
+}, []);
 
   // --- 3. REGISTER USER (PURE WEB3 & LOCAL STORAGE) ---
   const registerUser = async (form) => {

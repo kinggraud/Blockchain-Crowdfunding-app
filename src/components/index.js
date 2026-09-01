@@ -8,3 +8,5 @@ export { default as Footer } from './Footer';
 export { default as CountBox } from './CountBox';
 export { default as Loader } from './Loader';
 export { default as LandingPage } from './LandingPage';
+export { default as AdminGuard } from './AdminGuard';
+export { default as SignupModal } from './SignupModal';

@@ -15,10 +15,14 @@ const Profile = () => {
 
   // Input bindings for Profile Form
   const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [studentId, setStudentId] = useState('');
   const [profilePic, setProfilePic] = useState('');
 
   // Synchronized persistent state strings
   const [displayedName, setDisplayedName] = useState('');
+  const [displayedEmail, setDisplayedEmail] = useState('');
+  const [displayedStudentId, setDisplayedStudentId] = useState('');
   const [displayedPic, setDisplayedPic] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -47,27 +51,67 @@ const Profile = () => {
     if (contract && address) fetchCampaigns();
   }, [address, contract]);
 
-  // Load Profile from Local Storage on mount or address change
+  // Load Profile and Registration Data from Local Storage on mount or address change
   useEffect(() => {
     if (address) {
-      const storedProfile = localStorage.getItem(`user_profile_${address.toLowerCase()}`);
+      const normalizedAddr = address.toLowerCase();
+
+      // Check all potential keys saved by SignupModal or Profile modal
+      const storedAccount = localStorage.getItem(`user_account_${normalizedAddr}`) || 
+                            localStorage.getItem(`recipient_status_${normalizedAddr}`);
+      const storedProfile = localStorage.getItem(`user_profile_${normalizedAddr}`);
+      const storedAdmin = localStorage.getItem(`admin_account_${normalizedAddr}`);
+
+      let mergedData = {};
+
+      if (storedAdmin) {
+        setIsAdmin(true);
+      } else {
+        setIsAdmin(false);
+      }
+
+      if (storedAccount) {
+        try {
+          mergedData = { ...mergedData, ...JSON.parse(storedAccount) };
+        } catch (e) {
+          console.error("Error parsing user_account:", e);
+        }
+      }
+
       if (storedProfile) {
         try {
-          const parsedData = JSON.parse(storedProfile);
-          setDisplayedName(parsedData.fullName || '');
-          setDisplayedPic(parsedData.profilePic || '');
-          setFullName(parsedData.fullName || '');
-          setProfilePic(parsedData.profilePic || '');
-        } catch (error) {
-          console.error("Error parsing local profile data:", error);
+          mergedData = { ...mergedData, ...JSON.parse(storedProfile) };
+        } catch (e) {
+          console.error("Error parsing user_profile:", e);
         }
-      } else {
-        // Reset state if no profile exists for this address
-        setDisplayedName('');
-        setDisplayedPic('');
-        setFullName('');
-        setProfilePic('');
       }
+
+      // Hydrate state
+      const finalName = mergedData.fullName || '';
+      const finalEmail = mergedData.email || '';
+      const finalId = mergedData.studentId || '';
+      const finalPic = mergedData.profilePic || '';
+
+      setDisplayedName(finalName);
+      setDisplayedEmail(finalEmail);
+      setDisplayedStudentId(finalId);
+      setDisplayedPic(finalPic);
+
+      setFullName(finalName);
+      setEmail(finalEmail);
+      setStudentId(finalId);
+      setProfilePic(finalPic);
+    } else {
+      // Reset state if wallet disconnects
+      setDisplayedName('');
+      setDisplayedEmail('');
+      setDisplayedStudentId('');
+      setDisplayedPic('');
+      setFullName('');
+      setEmail('');
+      setStudentId('');
+      setProfilePic('');
+      setIsAdmin(false);
     }
   }, [address]);
 
@@ -94,18 +138,25 @@ const Profile = () => {
     if (!address) return alert("Wallet not connected!");
 
     try {
+      const normalizedAddr = address.toLowerCase();
       const profileData = {
         fullName: fullName.trim(),
+        email: email.trim(),
+        studentId: studentId.trim(),
         profilePic: profilePic,
-        walletAddress: address.toLowerCase(),
+        address: normalizedAddr,
         updatedAt: new Date().toISOString()
       };
 
-      // Save to localStorage using the wallet address as a unique key
-      localStorage.setItem(`user_profile_${address.toLowerCase()}`, JSON.stringify(profileData));
+      // Save to key structures for full system synchronization
+      localStorage.setItem(`user_profile_${normalizedAddr}`, JSON.stringify(profileData));
+      localStorage.setItem(`user_account_${normalizedAddr}`, JSON.stringify(profileData));
+      localStorage.setItem(`recipient_status_${normalizedAddr}`, JSON.stringify(profileData));
 
-      // Update the UI immediately
+      // Update UI state
       setDisplayedName(profileData.fullName);
+      setDisplayedEmail(profileData.email);
+      setDisplayedStudentId(profileData.studentId);
       setDisplayedPic(profileData.profilePic);
 
       setIsProfileModalOpen(false);
@@ -194,22 +245,34 @@ const Profile = () => {
         </div>
         
         <div className="flex-1 text-center md:text-left">
-          <div className="flex items-center justify-center md:justify-start gap-3">
+          <div className="flex items-center justify-center md:justify-start gap-3 flex-wrap">
             <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
               {displayedName || (
                 <span className="text-slate-400 dark:text-[#4b5264] italic text-lg font-normal">
-                  Anonymous User (Click 'Create Profile' to set up your name)
+                  Anonymous Recipient (Click 'Create Profile' to set up)
                 </span>
               )}
             </h2>
-            {isAdmin && (
+            {isAdmin ? (
               <span className="px-3 py-1 bg-[#8c6dfd]/20 text-[#8c6dfd] rounded-full text-xs font-bold border border-[#8c6dfd] flex items-center gap-1">
                 🛡️ Admin Verified
+              </span>
+            ) : (
+              <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-xs font-bold border border-emerald-500/20 flex items-center gap-1">
+                🎓 Verified Recipient
               </span>
             )}
           </div>
 
-          <div className="flex flex-wrap justify-center md:justify-start items-center gap-3 mt-3">
+          {/* Additional details from Signup Modal */}
+          {(displayedEmail || displayedStudentId) && (
+            <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mt-2 text-xs text-slate-500 dark:text-[#808191]">
+              {displayedEmail && <span>📧 {displayedEmail}</span>}
+              {displayedStudentId && <span>🆔 {displayedStudentId}</span>}
+            </div>
+          )}
+
+          <div className="flex flex-wrap justify-center md:justify-start items-center gap-3 mt-4">
             <button 
               onClick={() => setIsAddressModalOpen(true)}
               className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#2c2f32] dark:hover:bg-[#3a3a43] text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-slate-200 dark:border-[#4b5264] transition-all cursor-pointer"
@@ -261,26 +324,48 @@ const Profile = () => {
             <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Configure Profile Identity</h3>
             <p className="text-slate-400 text-xs mb-6">Save your profile details locally in your browser.</p>
             
-            <form onSubmit={handleSaveProfile} className="flex flex-col gap-5">
-              <div className="flex flex-col gap-2">
+            <form onSubmit={handleSaveProfile} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-slate-500 dark:text-[#808191] uppercase tracking-wider">Full Name *</label>
                 <input 
                   type="text" 
                   required
                   placeholder="e.g. Alex Morgan"
-                  className="w-full px-4 py-3 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-xl text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd] text-sm"
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-xl text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd] text-sm"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                 />
               </div>
 
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-slate-500 dark:text-[#808191] uppercase tracking-wider">Email Address</label>
+                <input 
+                  type="email" 
+                  placeholder="e.g. alex@university.edu"
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-xl text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd] text-sm"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-slate-500 dark:text-[#808191] uppercase tracking-wider">Matric / Student ID</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. EEE/2021/1042"
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-xl text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd] text-sm"
+                  value={studentId}
+                  onChange={(e) => setStudentId(e.target.value)}
+                />
+              </div>
+
+              <div className="flex flex-col gap-3 mt-1">
                 <label className="text-xs font-bold text-slate-500 dark:text-[#808191] uppercase tracking-wider">
                   Profile Image
                 </label>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex flex-col items-center justify-center min-h-[140px] p-4 bg-slate-50 dark:bg-[#13131a] border-2 border-dashed border-slate-200 dark:border-[#3a3a43] rounded-xl hover:border-[#8c6dfd] transition-all relative group">
+                  <div className="flex flex-col items-center justify-center min-h-[120px] p-3 bg-slate-50 dark:bg-[#13131a] border-2 border-dashed border-slate-200 dark:border-[#3a3a43] rounded-xl hover:border-[#8c6dfd] transition-all relative group">
                     <input 
                       type="file" 
                       accept="image/*"
@@ -288,20 +373,20 @@ const Profile = () => {
                       onChange={handleFileChange}
                     />
                     <div className="text-center flex flex-col items-center pointer-events-none z-0">
-                      <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">📁</span>
-                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                      <span className="text-xl mb-1 group-hover:scale-110 transition-transform">📁</span>
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                         Upload Image File
                       </p>
-                      <p className="text-[11px] text-slate-400 mb-3">PNG, JPG (&lt;1MB)</p>
-                      <div className="px-3 py-1.5 bg-[#3a3a43] group-hover:bg-[#8c6dfd] text-white font-medium text-xs rounded-lg transition-colors shadow-sm">
+                      <p className="text-[10px] text-slate-400 mb-2">PNG, JPG (&lt;1MB)</p>
+                      <div className="px-3 py-1 bg-[#3a3a43] group-hover:bg-[#8c6dfd] text-white font-medium text-xs rounded-lg transition-colors shadow-sm">
                         Browse Files
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-col justify-center p-4 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-xl">
+                  <div className="flex flex-col justify-center p-3 bg-slate-50 dark:bg-[#13131a] border border-slate-200 dark:border-[#3a3a43] rounded-xl">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm">🌐</span>
+                      <span className="text-xs">🌐</span>
                       <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                         Or Paste Web Image URL
                       </p>
@@ -309,7 +394,7 @@ const Profile = () => {
                     <input 
                       type="url" 
                       placeholder="https://images.com/avatar.png"
-                      className="w-full px-3 py-2.5 bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-lg text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd] text-xs transition-all"
+                      className="w-full px-3 py-2 bg-white dark:bg-[#1c1c24] border border-slate-200 dark:border-[#3a3a43] rounded-lg text-slate-900 dark:text-white outline-none focus:border-[#8c6dfd] text-xs transition-all"
                       value={profilePic}
                       onChange={(e) => setProfilePic(e.target.value)}
                     />
@@ -317,11 +402,11 @@ const Profile = () => {
                 </div>
 
                 {profilePic && (
-                  <div className="flex items-center gap-4 p-3 bg-[#1c1c24]/40 border border-emerald-500/20 rounded-xl mt-1">
+                  <div className="flex items-center gap-4 p-2.5 bg-[#1c1c24]/40 border border-emerald-500/20 rounded-xl">
                     <img 
                       src={profilePic} 
                       alt="Profile Preview" 
-                      className="w-12 h-12 object-cover rounded-xl border-2 border-[#4acd8d] shadow-md"
+                      className="w-10 h-10 object-cover rounded-xl border-2 border-[#4acd8d] shadow-md"
                       onError={(e) => {
                         e.target.style.display = 'none';
                       }}
@@ -335,7 +420,7 @@ const Profile = () => {
                 )}
               </div>
 
-              <div className="flex gap-4 mt-4">
+              <div className="flex gap-4 mt-2">
                 <button 
                   type="button" 
                   onClick={() => setIsProfileModalOpen(false)}

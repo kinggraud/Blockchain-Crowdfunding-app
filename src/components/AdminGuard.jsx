@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStateContext } from '../context';
-
+import SignupModal from './SignupModal'; // 👈 Added missing import
 
 const AdminGuard = ({ children }) => {
   const navigate = useNavigate();
@@ -14,14 +14,43 @@ const AdminGuard = ({ children }) => {
 
   const [isModalOpen, setIsModalOpen] = useState(true);
 
-  // Safely handle navigation side-effects
+  // 1. Lowercase normalization for local storage lookups
+  const normalizedAddr = address ? address.toLowerCase() : '';
+  const storedAdmin = normalizedAddr 
+    ? (localStorage.getItem(`admin_account_${normalizedAddr}`) || 
+       localStorage.getItem(`admin_status_${normalizedAddr}`))
+    : null;
+  const localAdminRecord = storedAdmin ? JSON.parse(storedAdmin) : null;
+
+  // 2. Robust Admin Evaluation Check
+  const isAdmin = 
+    userStatus?.role === 1 ||
+    userStatus?.role === '1' ||
+    userStatus?.isAdmin === true ||
+    userStatus?.role === 'admin' ||
+    userStatus === 'admin' ||
+    adminStatus?.isAdmin === true || 
+    adminStatus?.role === 1 || 
+    adminStatus?.role === '1' ||
+    localAdminRecord?.role === 1 || 
+    localAdminRecord?.role === '1' ||
+    localAdminRecord?.isAdmin === true;
+
+  // 3. Auto-open modal immediately when an non-admin user hits this guard
+  useEffect(() => {
+    if (address && !isAdmin) {
+      setIsModalOpen(true);
+    }
+  }, [address, isAdmin]);
+
+  // 4. Redirect unconnected users to home
   useEffect(() => {
     if (!isLoadingUserStatus && !address) {
       navigate('/home');
     }
   }, [address, isLoadingUserStatus, navigate]);
 
-  // 1. Loading spinner while checking wallet & on-chain state
+  // Loading spinner while checking wallet & on-chain state
   if (isLoadingUserStatus) {
     return (
       <div className="flex items-center justify-center min-h-[70vh]">
@@ -33,41 +62,15 @@ const AdminGuard = ({ children }) => {
     );
   }
 
-  // 2. Return null if no address while useEffect completes redirect
+  // Return null if no address connected while useEffect handles redirect
   if (!address) return null;
-
-  // 3. Lowercase normalization for local storage lookups
-  const normalizedAddr = address.toLowerCase();
-  const storedAdmin = 
-    localStorage.getItem(`admin_account_${normalizedAddr}`) || 
-    localStorage.getItem(`admin_status_${normalizedAddr}`);
-  const localAdminRecord = storedAdmin ? JSON.parse(storedAdmin) : null;
-
-  // 4. Robust Admin Evaluation Check
-  const isAdmin = 
-    // Check object fields from index.jsx state context
-    userStatus?.role === 1 ||
-    userStatus?.role === '1' ||
-    userStatus?.isAdmin === true ||
-    userStatus?.role === 'admin' ||
-    userStatus === 'admin' ||
-    
-    // Check adminStatus state
-    adminStatus?.isAdmin === true || 
-    adminStatus?.role === 1 || 
-    adminStatus?.role === '1' ||
-
-    // Check LocalStorage fallbacks
-    localAdminRecord?.role === 1 || 
-    localAdminRecord?.role === '1' ||
-    localAdminRecord?.isAdmin === true;
 
   // If validation passes, render protected child route
   if (isAdmin) {
     return children;
   }
 
-  // 5. Fallback UI when connected wallet is NOT an admin
+  // Fallback UI with Modal setup auto-triggered
   return (
     <div className="min-h-screen bg-[#13131a] flex flex-col items-center justify-center p-4 font-epilogue">
       <div className="text-center space-y-4 max-w-[400px]">
@@ -90,6 +93,7 @@ const AdminGuard = ({ children }) => {
       <SignupModal
         isOpen={isModalOpen}
         defaultStep="admin-domain"
+        initialRole="admin"
         onClose={() => {
           setIsModalOpen(false);
           const updatedLocal = localStorage.getItem(`admin_account_${normalizedAddr}`);
