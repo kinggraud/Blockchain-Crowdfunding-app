@@ -66,10 +66,10 @@ const Footer = () => {
         {/* Brand Identity */}
         <div className="md:col-span-4">
           <h2 className="text-3xl font-extrabold mb-6 tracking-tighter text-slate-900 dark:text-white">
-            FundSphere<span className="text-[#8c6dfd]">.</span>
+            Escrow Crowdfunding<span className="text-[#8c6dfd]">.</span>
           </h2>
           <p className="text-slate-600 dark:text-gray-400 text-base leading-relaxed max-w-sm mb-8">
-            Revolutionizing academic funding through blockchain transparency. Empowering the next generation of innovators, one block at a time.
+            Revolutionizing funding through blockchain transparency.
           </p>
           
           <div className="flex gap-4">
@@ -134,7 +134,7 @@ const Footer = () => {
 
       {/* Bottom Bar */}
       <div className="max-w-7xl mx-auto px-6 mt-20 pt-8 border-t border-slate-200 dark:border-[#1c1c24] flex flex-col md:flex-row justify-between items-center gap-4 text-slate-500 text-xs font-medium uppercase tracking-widest">
-        <p>© {new Date().getFullYear()} FundSphere Labs. Built for Web3.</p>
+        <p>© {new Date().getFullYear()} Escrow Crowdfunding. All rights reserved.</p>
         <div className="flex gap-8">
           <span className="hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors">Status</span>
           <span className="hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors">System Log</span>
